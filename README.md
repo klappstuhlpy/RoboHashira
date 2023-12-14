@@ -1,4 +1,4 @@
-# Percy Project
+# RoboHashira Project
 
 This project is a Discord bot written in Python using the discord.py library.
 The Bot is designed as a Music Bot with a variety of featueres, such as Temporary Voice Channels.
