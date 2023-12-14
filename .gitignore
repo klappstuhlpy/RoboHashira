@@ -1,7 +1,7 @@
 /config.py
 /config.json
 /rhashira.log
-/restart.sh
+/rhashira.sh
 /venv/
 /__pycache__/
 /cogs/__pycache__/
@@ -11,4 +11,5 @@
 /blacklist.json
 /temp_channels.json
 /migrations/revisions.json
-/unused_code.py
+/unused code.py
+/cogs/dbots.py
