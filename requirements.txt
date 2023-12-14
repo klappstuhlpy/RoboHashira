@@ -10,6 +10,7 @@ pygit2~=1.13.3
 python-dateutil~=2.8.2
 spotipy~=2.23.0
 typing_extensions>=4,<5
+lru-dict
 
 git+https://github.com/Gorialis/jishaku.git
 git+https://github.com/Rapptz/discord-ext-menus.git
