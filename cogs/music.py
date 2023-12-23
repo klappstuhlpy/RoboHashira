@@ -258,9 +258,6 @@ class Music(commands.Cog):
                 raise app_commands.AppCommandError("You need to be in a voice channel or provide one to connect to.")
 
         player = await channel.connect(cls=Player(self.bot), self_deaf=True)
-        # We need to add the new player to the node manually
-        # because we use our own player
-        player.node._players[player.guild.id] = player
 
         if isinstance(channel, discord.StageChannel):
             if not channel.instance:

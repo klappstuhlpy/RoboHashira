@@ -14,7 +14,7 @@ lru-dict
 
 git+https://github.com/Gorialis/jishaku.git
 git+https://github.com/Rapptz/discord-ext-menus.git
-wavelink~=3.1.0
+wavelink>=3.1.2
 fuzzywuzzy~=0.18.0
 yarl~=1.9.2
 Levenshtein~=0.23.0
