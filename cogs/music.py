@@ -250,7 +250,7 @@ class Music(commands.Cog):
             await player.disconnect()
 
     async def join(self, ctx: discord.Interaction | Context) -> Player:
-        channel = ctx.user.voice.channel
+        channel = ctx.user.voice.channel if ctx.user.voice else None
         if not channel:
             if isinstance(ctx, Context):
                 raise commands.BadArgument("You need to be in a voice channel or provide one to connect to.")
