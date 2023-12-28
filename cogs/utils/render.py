@@ -55,8 +55,8 @@ class Render(abc.ABCMeta):
             draw.line([(x1, y1), (x2, y2)], fill='white', width=1, joint='curve')
 
         font = ImageFont.truetype(PATH + 'Ginto-Bold.otf', 28)
-        x = 356 - len("EQ") * (len("EQ") // 2)
-        draw.text((x, 29), "EQ", font=font, fill="white")
+        x = 356 - len('EQ') * (len('EQ') // 2)
+        draw.text((x, 29), 'EQ', font=font, fill='white')
 
         buffer = BytesIO()
         image.save(buffer, 'png')

@@ -221,32 +221,32 @@ class Stats(commands.Cog):
         return f'[`{short_sha2}`](https://github.com/klappstuhlpy/RoboHashira/commit/{commit.hex}) {short} ({offset})'
 
     def get_last_commits(self, count=4):
-        repo = pygit2.Repository(self.bot.config.SRC_PATH + "/rendering/repo/.git")
+        repo = pygit2.Repository(self.bot.config.SRC_PATH + '/rendering/repo/.git')
         commits = list(itertools.islice(repo.walk(repo.head.target, pygit2.GIT_SORT_TOPOLOGICAL), count))
         return '\n'.join(self.format_commit(c) for c in commits)
 
     def line_count(self) -> tuple[int, int, int, int, int, int]:
         path = pathlib.Path(__file__).parent.parent
         ignored = [
-            pathlib.Path(os.path.join(path, "rendering")),
-            pathlib.Path(os.path.join(path, "venv")),
+            pathlib.Path(os.path.join(path, 'rendering')),
+            pathlib.Path(os.path.join(path, 'venv')),
         ]
         files = classes = funcs = comments = lines = characters = 0
-        for f in path.rglob(f"*.py"):
+        for f in path.rglob(f'*.py'):
             if any(parent in ignored for parent in f.parents):
                 continue
             files += 1
-            with open(f, encoding="utf8", errors='ignore') as of:
-                characters += len(open(f, encoding="utf8", errors='ignore').read())
+            with open(f, encoding='utf8', errors='ignore') as of:
+                characters += len(open(f, encoding='utf8', errors='ignore').read())
                 for line in of.readlines():
                     line = line.strip()
-                    if line.startswith("class"):
+                    if line.startswith('class'):
                         classes += 1
-                    if line.startswith("def"):
+                    if line.startswith('def'):
                         funcs += 1
-                    if line.startswith("async def"):
+                    if line.startswith('async def'):
                         funcs += 1
-                    if "#" in line:
+                    if '#' in line:
                         comments += 1
                     lines += 1
         return files, classes, funcs, comments, lines, characters
@@ -262,7 +262,7 @@ class Stats(commands.Cog):
         embed.colour = formats.Colour.teal()
 
         embed.set_author(name=str(self.bot.owner), icon_url=self.bot.owner.display_avatar.url,
-                         url=f"https://discord.com/users/{self.bot.owner.id}")
+                         url=f'https://discord.com/users/{self.bot.owner.id}')
 
         (
             files,
@@ -275,15 +275,15 @@ class Stats(commands.Cog):
         ) = await self.bot.loop.run_in_executor(None, self.line_count)
 
         f_stats = {
-            "Characters": characters,
-            "Functions": funcs,
-            "Comments": comments,
-            "Classes": classes,
-            "Files": files,
-            "Lines": lines,
+            'Characters': characters,
+            'Functions': funcs,
+            'Comments': comments,
+            'Classes': classes,
+            'Files': files,
+            'Lines': lines,
         }
 
-        f_stats_str = "\n".join(f"{k}: {v}" for k, v in f_stats.items())
+        f_stats_str = '\n'.join(f'{k}: {v}' for k, v in f_stats.items())
 
         # statistics
         total_members = 0
@@ -315,14 +315,14 @@ class Stats(commands.Cog):
         embed.add_field(name='Guilds', value=guilds)
         embed.add_field(name='Commands Run', value=sum(self.bot.command_stats.values()))
         embed.add_field(name='Uptime', value=self.get_bot_uptime(brief=True))
-        embed.add_field(name="​", value="​")
-        embed.add_field(name="File Stats", value=f"```py\n{f_stats_str}```")
+        embed.add_field(name='​', value='​')
+        embed.add_field(name='File Stats', value=f'```py\n{f_stats_str}```')
         embed.add_field(
-            name="Process",
-            value=f"```py\n"
-                  f"CPU: {cpu_usage:.2f}% CPU\n"
-                  f"Memory: {memory_usage:.2f} MiB | {psutil.virtual_memory().percent}%\n"
-                  f"Disk: {psutil.disk_usage(pathlib.Path(__file__).parent.parent.__str__()).percent}%```"
+            name='Process',
+            value=f'```py\n'
+                  f'CPU: {cpu_usage:.2f}% CPU\n'
+                  f'Memory: {memory_usage:.2f} MiB | {psutil.virtual_memory().percent}%\n'
+                  f'Disk: {psutil.disk_usage(pathlib.Path(__file__).parent.parent.__str__()).percent}%```'
         )
 
         embed.set_footer(text=f'Made with discord.py v{version}', icon_url='http://i.imgur.com/5BFecvA.png')
@@ -365,7 +365,7 @@ class Stats(commands.Cog):
                    FROM commands
                    WHERE guild_id=$1
                    GROUP BY command
-                   ORDER BY "uses" DESC
+                   ORDER BY 'uses' DESC
                    LIMIT 5;
                 """
 
@@ -385,7 +385,7 @@ class Stats(commands.Cog):
                    WHERE guild_id=$1
                    AND used > (CURRENT_TIMESTAMP - INTERVAL '1 day')
                    GROUP BY command
-                   ORDER BY "uses" DESC
+                   ORDER BY 'uses' DESC
                    LIMIT 5;
                 """
 
@@ -404,7 +404,7 @@ class Stats(commands.Cog):
                    FROM commands
                    WHERE guild_id=$1
                    GROUP BY author_id
-                   ORDER BY "uses" DESC
+                   ORDER BY 'uses' DESC
                    LIMIT 5;
                 """
 
@@ -426,7 +426,7 @@ class Stats(commands.Cog):
                    WHERE guild_id=$1
                    AND used > (CURRENT_TIMESTAMP - INTERVAL '1 day')
                    GROUP BY author_id
-                   ORDER BY "uses" DESC
+                   ORDER BY 'uses' DESC
                    LIMIT 5;
                 """
 
@@ -471,7 +471,7 @@ class Stats(commands.Cog):
                    FROM commands
                    WHERE guild_id=$1 AND author_id=$2
                    GROUP BY command
-                   ORDER BY "uses" DESC
+                   ORDER BY 'uses' DESC
                    LIMIT 5;
                 """
 
@@ -492,7 +492,7 @@ class Stats(commands.Cog):
                    AND author_id=$2
                    AND used > (CURRENT_TIMESTAMP - INTERVAL '1 day')
                    GROUP BY command
-                   ORDER BY "uses" DESC
+                   ORDER BY 'uses' DESC
                    LIMIT 5;
                 """
 
@@ -540,7 +540,7 @@ class Stats(commands.Cog):
         query = """SELECT command, COUNT(*) AS "uses"
                    FROM commands
                    GROUP BY command
-                   ORDER BY "uses" DESC
+                   ORDER BY 'uses' DESC
                    LIMIT 5;
                 """
 
@@ -552,7 +552,7 @@ class Stats(commands.Cog):
         query = """SELECT guild_id, COUNT(*) AS "uses"
                    FROM commands
                    GROUP BY guild_id
-                   ORDER BY "uses" DESC
+                   ORDER BY 'uses' DESC
                    LIMIT 5;
                 """
 
@@ -572,7 +572,7 @@ class Stats(commands.Cog):
         query = """SELECT author_id, COUNT(*) AS "uses"
                    FROM commands
                    GROUP BY author_id
-                   ORDER BY "uses" DESC
+                   ORDER BY 'uses' DESC
                    LIMIT 5;
                 """
 
@@ -622,7 +622,7 @@ class Stats(commands.Cog):
                    FROM commands
                    WHERE used > (CURRENT_TIMESTAMP - INTERVAL '1 day')
                    GROUP BY command
-                   ORDER BY "uses" DESC
+                   ORDER BY 'uses' DESC
                    LIMIT 5;
                 """
 
@@ -635,7 +635,7 @@ class Stats(commands.Cog):
                    FROM commands
                    WHERE used > (CURRENT_TIMESTAMP - INTERVAL '1 day')
                    GROUP BY guild_id
-                   ORDER BY "uses" DESC
+                   ORDER BY 'uses' DESC
                    LIMIT 5;
                 """
 
@@ -655,7 +655,7 @@ class Stats(commands.Cog):
                    FROM commands
                    WHERE used > (CURRENT_TIMESTAMP - INTERVAL '1 day')
                    GROUP BY author_id
-                   ORDER BY "uses" DESC
+                   ORDER BY 'uses' DESC
                    LIMIT 5;
                 """
 
@@ -739,7 +739,7 @@ class Stats(commands.Cog):
 
         emoji = attributes.get(record.levelname, '\N{CROSS MARK}')
         dt = datetime.datetime.utcfromtimestamp(record.created)
-        msg = textwrap.shorten(f'{emoji} {formats.format_dt(dt, style="F")} {record.message}', width=1990)
+        msg = textwrap.shorten(f'{emoji} {formats.format_dt(dt, style='F')} {record.message}', width=1990)
         if record.name == 'discord.gateway':
             username = 'Gateway'
             avatar_url = 'https://i.imgur.com/74UqM1Z.png'  # https://i.imgur.com/4PnCKB3.png
@@ -787,7 +787,7 @@ class Stats(commands.Cog):
         spam_control = self.bot.spam_control
         being_spammed = [str(key) for key, value in spam_control._cache.items() if value._tokens == 0]
 
-        description.append(f'Current Spammers: {", ".join(being_spammed) if being_spammed else "None"}')
+        description.append(f'Current Spammers: {', '.join(being_spammed) if being_spammed else 'None'}')
         description.append(f'Questionable Connections: {questionable_connections}')
 
         total_warnings += questionable_connections
@@ -802,9 +802,9 @@ class Stats(commands.Cog):
         tasks_directory = os.path.join('discord', 'ext', 'tasks', '__init__.py')
         inner_tasks = [t for t in all_tasks if cogs_directory in repr(t) or tasks_directory in repr(t)]
 
-        bad_inner_tasks = ", ".join(hex(id(t)) for t in inner_tasks if t.done() and t._exception is not None)
+        bad_inner_tasks = ', '.join(hex(id(t)) for t in inner_tasks if t.done() and t._exception is not None)
         total_warnings += bool(bad_inner_tasks)
-        embed.add_field(name='Inner Tasks', value=f'Total: `{len(inner_tasks)}`\nFailed: `{bad_inner_tasks or "None"}`')
+        embed.add_field(name='Inner Tasks', value=f'Total: `{len(inner_tasks)}`\nFailed: `{bad_inner_tasks or 'None'}`')
         embed.add_field(name='Events Waiting', value=f'Total: `{len(event_tasks)}`', inline=False)
 
         command_waiters = len(self._data_batch)
@@ -886,7 +886,7 @@ class Stats(commands.Cog):
                 stats.append(f'ID: {identify}')
 
             if stats:
-                builder.append(f'Shard ID {shard_id}: {badge} ({", ".join(stats)})')
+                builder.append(f'Shard ID {shard_id}: {badge} ({', '.join(stats)})')
             else:
                 builder.append(f'Shard ID {shard_id}: {badge}')"""
 
@@ -970,11 +970,11 @@ class Stats(commands.Cog):
         else:
             await ctx.send(render)
 
-    @commands.group(name="command", invoke_without_command=True, hidden=True)
+    @commands.group(name='command', invoke_without_command=True, hidden=True)
     async def _command(self, ctx: Context):
         ...
 
-    @_command.command(name="stats")
+    @_command.command(name='stats')
     @commands.is_owner()
     async def command_stats(self, ctx: Context, *, limit: int = 12):
         """Shows the current command usage statistics.
@@ -1009,9 +1009,9 @@ class Stats(commands.Cog):
 
                 return embed
 
-        await FieldPaginator.start(ctx, entries=[{"name": key, "value": value} for key, value in common], per_page=12)
+        await FieldPaginator.start(ctx, entries=[{'name': key, 'value': value} for key, value in common], per_page=12)
 
-    @_command.group(name="history", hidden=True, invoke_without_command=True)
+    @_command.group(name='history', hidden=True, invoke_without_command=True)
     @commands.is_owner()
     async def command_history(self, ctx: Context):
         """Command history."""
@@ -1047,7 +1047,7 @@ class Stats(commands.Cog):
                            AND used > (CURRENT_TIMESTAMP - $2::interval)
                            GROUP BY guild_id
                        ) AS t
-                       ORDER BY "total" DESC
+                       ORDER BY 'total' DESC
                        LIMIT 30;
                     """
 
@@ -1158,7 +1158,7 @@ class Stats(commands.Cog):
                                AND used > (CURRENT_TIMESTAMP - $2::interval)
                                GROUP BY command
                            ) AS t
-                           ORDER BY "total" DESC
+                           ORDER BY 'total' DESC
                            LIMIT 30;
                         """
                 return await self.tabulate_query(ctx, query, [c.qualified_name for c in cog.walk_commands()], interval)

@@ -20,7 +20,7 @@ from typing import Callable, Iterable, Literal, Optional, Sequence, TypeVar, Gen
 try:
     from .StringMatcher import StringMatcher as SequenceMatcher
 except ImportError:
-    if platform.python_implementation() != "PyPy":
+    if platform.python_implementation() != 'PyPy':
         warnings.warn('Using slow pure-python SequenceMatcher. Install python-Levenshtein to remove this warning')
     from difflib import SequenceMatcher
 

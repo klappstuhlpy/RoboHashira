@@ -12,7 +12,6 @@ from typing import Any, Callable, Union, Awaitable, Self, Optional, List
 
 import discord
 import pygit2
-import wavelink
 from asyncpg import Record
 from discord.ext import commands
 from contextlib import redirect_stdout
@@ -97,7 +96,7 @@ class Admin(commands.Cog):
     def get_syntax_error(e: SyntaxError) -> str:
         if e.text is None:
             return f'```py\n{e.__class__.__name__}: {e}\n```'
-        return f'```py\n{e.text}{"^":>{e.offset}}\n{e.__class__.__name__}: {e}```'
+        return f'```py\n{e.text}{'^':>{e.offset}}\n{e.__class__.__name__}: {e}```'
 
     async def cog_check(self, ctx: Context) -> bool:
         return await self.bot.is_owner(ctx.author)
@@ -105,40 +104,30 @@ class Admin(commands.Cog):
     @commands.command(hidden=True)
     async def syncrepo(self, ctx: Context):
         try:
-            path = self.bot.config.SRC_PATH + "/rendering/repo/"
+            path = self.bot.config.SRC_PATH + '/rendering/repo/'
             for root, dirs, files in os.walk(path):
                 for f in files:
                     os.unlink(os.path.join(root, f))
                 for d in dirs:
                     shutil.rmtree(os.path.join(root, d))
 
-            pygit2.clone_repository("https://github.com/klappstuhlpy/RoboHashira", path)
+            pygit2.clone_repository('https://github.com/klappstuhlpy/RoboHashira', path)
         except:
-            await ctx.send(f"```py\n{traceback.format_exc()}```")
+            await ctx.send(f'```py\n{traceback.format_exc()}```')
         finally:
             await ctx.message.add_reaction(ctx.tick(True))
 
     @commands.command(hidden=True)
     async def maintenance(self, ctx: Context):
-        if self.bot.maintenance.get("maintenance") is True:
-            await self.bot.maintenance.put("maintenance", False)
-            await ctx.send("<:greenTick:1079249732364406854> Maintenance mode disabled.", ephemeral=True)
+        if self.bot.maintenance.get('maintenance') is True:
+            await self.bot.maintenance.put('maintenance', False)
+            await ctx.send('<:greenTick:1079249732364406854> Maintenance mode disabled.', ephemeral=True)
             await self.bot.change_presence(activity=discord.Activity(name=f'{self.bot.full_member_count()} users',
                                                                      type=discord.ActivityType.listening))
         else:
-            await self.bot.maintenance.put("maintenance", True)
-            await ctx.send("<:greenTick:1079249732364406854> Maintenance mode enabled.", ephemeral=True)
-            await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name="🛠️ Maintenance Mode"))
-
-    @commands.command(hidden=True)
-    async def playing(self, ctx: Context):
-        text = ""
-        for player in wavelink.NodePool.get_node().players:
-            player = wavelink.NodePool.get_node().get_player(player)
-            text += f"{player.guild.name} - {player.is_playing()}\n"
-        if text == "":
-            text = "*Nothing*"
-        await ctx.send("<:discord_info:1113421814132117545> __**Playing:**__\n\n" + text)
+            await self.bot.maintenance.put('maintenance', True)
+            await ctx.send('<:greenTick:1079249732364406854> Maintenance mode enabled.', ephemeral=True)
+            await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name='🛠️ Maintenance Mode'))
 
     @commands.command(hidden=True, name='eval')
     async def _eval(self, ctx: Context, *, body: str):
@@ -160,7 +149,7 @@ class Admin(commands.Cog):
         body = self.cleanup_code(body)
         stdout = io.StringIO()
 
-        to_compile = f'async def func():\n{textwrap.indent(body, "  ")}'
+        to_compile = f'async def func():\n{textwrap.indent(body, '  ')}'
 
         try:
             exec(to_compile, env)
@@ -189,7 +178,7 @@ class Admin(commands.Cog):
                 await ctx.send(f'```py\n{value}{ret}\n```')
 
     @commands.command(hidden=True,
-                      description="Checks the timing of a command, attempting to suppress HTTP and DB calls.")
+                      description='Checks the timing of a command, attempting to suppress HTTP and DB calls.')
     async def perf(self, ctx: Context, *, command: str):
         """Checks the timing of a command, attempting to suppress HTTP and DB calls."""
 
@@ -219,7 +208,7 @@ class Admin(commands.Cog):
                 end = time.perf_counter()
                 success = True
 
-            await ctx.send(embed=discord.Embed(description=f"Status: {ctx.tick(success)} Time: `{(end - start) * 1000:.2f}ms`",
+            await ctx.send(embed=discord.Embed(description=f'Status: {ctx.tick(success)} Time: `{(end - start) * 1000:.2f}ms`',
                                                color=formats.Colour.teal()))
         except Exception as e:
             traceback.print_exc()
@@ -241,7 +230,7 @@ class Admin(commands.Cog):
             fmt = f'```sql\n{render}\n```'
             await ctx.send(fmt)
 
-    @commands.group(hidden=True, invoke_without_command=True, description="Run some SQL.")
+    @commands.group(hidden=True, invoke_without_command=True, description='Run some SQL.')
     async def sql(self, ctx: Context, *, query: str):
         """Run some SQL."""
         from .utils.formats import TabularData, plural
@@ -286,9 +275,9 @@ class Admin(commands.Cog):
     async def sql_schema(self, ctx: Context, *, table_name: str):
         """Runs a query describing the table schema."""
         query = """SELECT column_name, data_type, column_default, is_nullable
-                       FROM INFORMATION_SCHEMA.COLUMNS
-                       WHERE table_name = $1
-                    """
+                   FROM INFORMATION_SCHEMA.COLUMNS
+                   WHERE table_name = $1;
+                """
 
         results: list[Record] = await ctx.db.fetch(query, table_name)
 
@@ -378,7 +367,7 @@ class Admin(commands.Cog):
         else:
             text = stdout
 
-        source = TextSource(prefix="```sh")
+        source = TextSource(prefix='```sh')
         for line in text.split('\n'):
             source.add_line(line)
 

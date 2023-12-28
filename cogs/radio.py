@@ -23,49 +23,49 @@ class Radio(commands.Cog):
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
-        return discord.PartialEmoji(name="\N{RADIO}")
+        return discord.PartialEmoji(name='\N{RADIO}')
 
-    @commands.hybrid_command(description="Adds a track/playlist to the queue and play the next available track.")
-    @app_commands.describe(source="The Radio Station you want to play from.")
+    @commands.hybrid_command(description='Adds a track/playlist to the queue and play the next available track.')
+    @app_commands.describe(source='The Radio Station you want to play from.')
     @commands.guild_only()
     @checks.is_author_connected()
     @checks.is_listen_together()
-    async def radio(self, ctx: Context, source: Literal["Antenne 1 (Germany)", "I Love Radio", "JoyHits"]):
+    async def radio(self, ctx: Context, source: Literal['Antenne 1 (Germany)', 'I Love Radio', 'JoyHits']):
         """Plays a Radio Station from YouTube."""
         await ctx.defer()
 
         player: Player = cast(Player, ctx.voice_client)
 
         if not player:
-            music: Music = self.bot.get_cog("Music")  # type: ignore
+            music: Music = self.bot.get_cog('Music')  # type: ignore
             player = await music.join(ctx)
 
         source_urls = {
-            "Antenne 1 (Germany)": "http://stream.antenne1.de/a1stg/livestream2.mp3",
-            "JoyHits": "http://joyhits.online/joyhits.flac.ogg",
-            "I Love Radio": "http://stream01.iloveradio.de/iloveradio1.mp3",
+            'Antenne 1 (Germany)': 'http://stream.antenne1.de/a1stg/livestream2.mp3',
+            'JoyHits': 'http://joyhits.online/joyhits.flac.ogg',
+            'I Love Radio': 'http://stream01.iloveradio.de/iloveradio1.mp3',
         }
 
         result = await wavelink.Pool.fetch_tracks(source_urls.get(source))
 
         if not result:
-            return await ctx.send("Sorry, seems like something went wrong!", ephemeral=True, delete_after=10)
+            return await ctx.send('Sorry, seems like something went wrong!', ephemeral=True, delete_after=10)
 
-        message_prefix = "`📻`"
+        message_prefix = '`📻`'
         if player.playing:
-            message_prefix += " Switched to"
+            message_prefix += ' Switched to'
 
         if player.playing:
             player.reset_queue()
             await player.stop()
 
-        setattr(result, "requester", ctx.author)
+        setattr(result, 'requester', ctx.author)
         await player.queue.put_wait(result)
         await player.play(player.queue.get(), volume=70)
 
         embed = discord.Embed(
             title=source,
-            description=f"{message_prefix} Radio Station: **{source}**",
+            description=f'{message_prefix} Radio Station: **{source}**',
             colour=formats.Colour.teal()
         )
         await ctx.send(embed=embed, delete_after=15)

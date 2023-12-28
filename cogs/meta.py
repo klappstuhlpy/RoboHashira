@@ -48,7 +48,7 @@ class GroupHelpPaginator(BasePaginator):
                 embed.add_field(name=command.qualified_name, value=command.description or 'No help given...',
                                 inline=False)
             else:
-                signature = f'{command.qualified_name} {command.signature}{" *(hidden)*" if command.hidden else ""}'
+                signature = f'{command.qualified_name} {command.signature}{' *(hidden)*' if command.hidden else ""}'
                 embed.add_field(name=signature, value=command.short_doc or 'No help given...', inline=False)
 
         embed.set_author(name=f'{plural(len(self.entries)):command}', icon_url=COMMAND_ICON_URL)
@@ -116,14 +116,14 @@ class HelpSelectMenu(discord.ui.Select):
             placeholder='Select a category to view...',
             row=1,
         )
-        self.commands: dict[commands.Cog, list[commands.Command], list[app_commands.AppCommand]] = entries
+        self.commands: dict[commands.Cog, list[PartialCommand]] = entries
         self.bot: RoboHashira = bot
         self.__fill_options()
 
     def __fill_options(self) -> None:
         self.add_option(
             label='Start Page',
-            emoji=discord.PartialEmoji(name="vegaleftarrow", id=1066024601332748389),
+            emoji=discord.PartialEmoji(name='vegaleftarrow', id=1066024601332748389),
             value='__index',
             description='The front page of the Help Menu.',
         )
@@ -160,7 +160,7 @@ class FrontHelpPaginator(BasePaginator):
     groups: dict[commands.Cog, list[commands.Command], list[app_commands.AppCommand]]
 
     async def format_page(self, entries: Dict, /):
-        embed = discord.Embed(title=f"{self.ctx.client.user.name}'s Help Page", colour=formats.Colour.teal())
+        embed = discord.Embed(title=f'{self.ctx.client.user.name}\'s Help Page', colour=formats.Colour.teal())
         embed.set_thumbnail(url=self.ctx.client.user.avatar.url)
         pref = '/' if isinstance(self.ctx, discord.Interaction) else self.ctx.clean_prefix
         embed.description = inspect.cleandoc(
@@ -271,7 +271,7 @@ class PaginatedHelpCommand(commands.HelpCommand):
         return set(cog.get_commands()) | set(cog.get_app_commands())
 
     async def total_commands_invoked(self) -> int:
-        query = "SELECT COUNT(*) as total FROM commands;"
+        query = 'SELECT COUNT(*) as total FROM commands;'
         return await self.context.client.pool.fetchval(query)  # type: ignore
 
     async def command_callback(self, ctx: Context, /, *, command: Optional[str] = None):  # noqa
@@ -378,7 +378,7 @@ class PaginatedHelpCommand(commands.HelpCommand):
                 and isinstance(error.original, discord.HTTPException)
                 and error.original.code == 50013):
             return
-        await ctx.send(f"{ctx.tick(False)} **Critical:** `{str(error.args)}`")
+        await ctx.stick(False, f'**Critical:** `{str(error.args)}`')
 
     def get_command_signature(self, command: PartialCommand) -> str:  # noqa
         is_app_command = hasattr(command, 'parent')
@@ -438,7 +438,7 @@ class PaginatedHelpCommand(commands.HelpCommand):
             embed.title = self.get_command_signature(command)
             embed.description = command.description or 'No help found...'
         else:
-            embed.title = f"{self.get_command_signature(command)}{' (*hidden*)' if command.hidden else ''}"
+            embed.title = f'{self.get_command_signature(command)}{' (*hidden*)' if command.hidden else ''}'
             embed.description = (
                 f'{command.description}\n\n{command.help}'
                 if command.description and (command.description != command.help or command.help is None)
@@ -516,7 +516,7 @@ class Meta(commands.Cog):
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
-        return discord.PartialEmoji(name="lvl1", id=1072925290520653884)
+        return discord.PartialEmoji(name='lvl1', id=1072925290520653884)
 
     def cog_unload(self):
         self.bot.help_command = self.old_help_command
@@ -551,12 +551,9 @@ class Meta(commands.Cog):
 
         return guild.get_channel(1070028934638473266)
 
+    @staticmethod
     def get_feedback_embed(
-        self,
-        obj: Context | discord.Interaction,
-        *,
-        summary: str,
-        details: Optional[str] = None,
+            obj: Context | discord.Interaction, *, summary: str, details: Optional[str] = None
     ) -> discord.Embed:
         e = discord.Embed(title='Feedback', color=formats.Colour.teal())
 
@@ -600,7 +597,7 @@ class Meta(commands.Cog):
 
         e = self.get_feedback_embed(ctx, summary=content)
         await channel.send(embed=e)
-        await ctx.send(f'{ctx.tick(True)} Successfully sent feedback')
+        await ctx.stick(True, 'Successfully sent feedback')
 
     @app_commands.command(name='feedback')
     async def feedback_slash(self, interaction: discord.Interaction):
@@ -621,14 +618,14 @@ class Meta(commands.Cog):
         try:
             await user.send(fmt)
         except:
-            await ctx.send(f'{ctx.tick(False)} Could not PM user by ID {user_id}.')
+            await ctx.stick(False, f'Could not PM user [`{user_id}`] by ID.')
         else:
-            await ctx.send(f'{ctx.tick(True)} PM successfully sent.')
+            await ctx.stick(True, 'PM successfully sent.')
 
-    @app_commands.command(name="help")
+    @app_commands.command(name='help')
     @app_commands.guild_only()
-    @app_commands.describe(module="Get help for a module.",
-                           command="Get help for a command")
+    @app_commands.describe(module='Get help for a module.',
+                           command='Get help for a command')
     async def _help(self, interaction: discord.Interaction, module: Optional[str] = None, command: Optional[str] = None):
         """Shows help for a command or module."""
         ctx: Context = await self.bot.get_context(interaction)
@@ -642,7 +639,7 @@ class Meta(commands.Cog):
     ) -> list[app_commands.Choice[str]]:
         if not hasattr(self, '_help_autocomplete_cache'):
             await interaction.response.autocomplete([])
-            self.bot.loop.create_task(self._fill_autocomplete())
+            self.bot.loop.create_task(self._fill_autocomplete())  # noqa
 
         module = interaction.namespace.module
         if module is not None:
@@ -662,7 +659,7 @@ class Meta(commands.Cog):
             current: str,
     ) -> list[app_commands.Choice[str]]:
         if not hasattr(self, '_help_autocomplete_cache'):
-            self.bot.loop.create_task(self._fill_autocomplete())
+            self.bot.loop.create_task(self._fill_autocomplete())  # noqa
 
         cogs = self._help_autocomplete_cache.keys()
         results = fuzzy.finder(current, [c.qualified_name for c in cogs])
@@ -692,7 +689,7 @@ class Meta(commands.Cog):
         """Appends a prefix to the list of custom prefixes.
         Previously set prefixes are not overridden.
         To have a word prefix, you should quote it and end it with
-        a space, e.g. "hello " to set the prefix to "hello ". This
+        a space, e.g. 'hello ' to set the prefix to 'hello '. This
         is because Discord removes spaces when sending messages so
         the spaces are not preserved.
         Multi-word prefixes must be quoted also.
@@ -704,14 +701,14 @@ class Meta(commands.Cog):
         try:
             await self.bot.set_guild_prefixes(ctx.guild, current_prefixes)
         except Exception as e:
-            await ctx.send(f'{ctx.tick(False)} {e}')
+            await ctx.stick(False, f'{e}')
         else:
-            await ctx.send(ctx.tick(True) + ' Prefix added.')
+            await ctx.stick(True, 'Prefix added.')
 
     @prefix_add.error
     async def prefix_add_error(self, ctx: GuildContext, error: commands.CommandError):
         if isinstance(error, commands.TooManyArguments):
-            await ctx.send("You've given too many prefixes. Either quote it or only do it one by one.")
+            await ctx.stick(False, 'You\'ve given too many prefixes. Either quote it or only do it one by one.')
 
     @prefix.command(name='remove', aliases=['delete'], ignore_extra=False)
     @checks.is_manager()
@@ -727,14 +724,14 @@ class Meta(commands.Cog):
         try:
             current_prefixes.remove(prefix)
         except ValueError:
-            return await ctx.send('I do not have this prefix registered.')
+            return await ctx.stick(False, 'I do not have this prefix registered.')
 
         try:
             await self.bot.set_guild_prefixes(ctx.guild, current_prefixes)
         except Exception as e:
-            await ctx.send(f'{ctx.tick(False)} {e}')
+            await ctx.stick(False, f'{e}')
         else:
-            await ctx.send(ctx.tick(True) + ' Prefix removed.')
+            await ctx.stick(True, 'Prefix removed.')
 
     @prefix.command(name='clear')
     @checks.is_manager()
@@ -745,9 +742,9 @@ class Meta(commands.Cog):
         """
 
         await self.bot.set_guild_prefixes(ctx.guild, [])
-        await ctx.send(ctx.tick(True) + ' Cleared all prefixes.')
+        await ctx.stick(True, 'Cleared all prefixes.')
 
-    @commands.hybrid_command(name="ping", description="Get the bots latency.")
+    @commands.hybrid_command(name='ping', description='Get the bots latency.')
     async def ping(self, ctx: Context):
         """Shows some Client and API latency information."""
 
@@ -757,23 +754,23 @@ class Meta(commands.Cog):
         websocket_readings: List[float] = []
 
         for _ in range(6):
-            text = "*Calculating round-trip time...*\n\n"
-            text += "\n".join(
-                f"Reading `{index + 1}`: `{reading * 1000:.2f}ms`" for index, reading in enumerate(api_readings))
+            text = '*Calculating round-trip time...*\n\n'
+            text += '\n'.join(
+                f'Reading `{index + 1}`: `{reading * 1000:.2f}ms`' for index, reading in enumerate(api_readings))
 
             if api_readings:
                 average, stddev = mean_stddev(api_readings)
 
-                text += f"\n\n**Average:** `{average * 1000:.2f}ms` \N{PLUS-MINUS SIGN} `{stddev * 1000:.2f}ms`"
+                text += f'\n\n**Average:** `{average * 1000:.2f}ms` \N{PLUS-MINUS SIGN} `{stddev * 1000:.2f}ms`'
             else:
-                text += "\n\n*No readings yet.*"
+                text += '\n\n*No readings yet.*'
 
             if websocket_readings:
                 average = sum(websocket_readings) / len(websocket_readings)
 
-                text += f"\n**Websocket latency:** `{average * 1000:.2f}ms`"
+                text += f'\n**Websocket latency:** `{average * 1000:.2f}ms`'
             else:
-                text += f"\n**Websocket latency:** `{self.bot.latency * 1000:.2f}ms`"
+                text += f'\n**Websocket latency:** `{self.bot.latency * 1000:.2f}ms`'
 
             if _ == 5:
                 gateway_url = await self.bot.http.get_gateway()
@@ -783,11 +780,11 @@ class Meta(commands.Cog):
                         end = time.monotonic()
                         gateway_ping = (end - start) * 1000
 
-                text += f"\n**Gateway latency:** `{gateway_ping:.2f}ms`"
+                text += f'\n**Gateway latency:** `{gateway_ping:.2f}ms`'
 
             if message:
                 before = time.perf_counter()
-                await message.edit(embed=discord.Embed(title="Pong!...",
+                await message.edit(embed=discord.Embed(title='Pong!...',
                                                              description=text,
                                                              color=formats.Colour.teal()))
                 after = time.perf_counter()
@@ -795,7 +792,7 @@ class Meta(commands.Cog):
                 api_readings.append(after - before)
             else:
                 before = time.perf_counter()
-                message = await ctx.send(embed=discord.Embed(title="Pong!...",
+                message = await ctx.send(embed=discord.Embed(title='Pong!...',
                                                              description=text,
                                                              color=formats.Colour.teal()))
                 after = time.perf_counter()
@@ -805,14 +802,14 @@ class Meta(commands.Cog):
             if self.bot.latency > 0.0:
                 websocket_readings.append(self.bot.latency)
 
-    @commands.hybrid_command(name="vote", description="Shows current available vote links")
+    @commands.hybrid_command(name='vote', description='Shows current available vote links')
     async def vote(self, ctx: Context):
         """Shows current available vote links for the bot."""
-        embed = discord.Embed(title="Vote",
-                              description="[Top.gg](https://top.gg/bot/1062083962773717053/vote)\n"
-                                          "[discord-botlist.eu](https://discord-botlist.eu/vote/1062083962773717053)\n"
-                                          "[discordbotlist.com](https://discordbotlist.com/bots/RoboHashira/upvote)\n"
-                                          "[Void Bots](https://voidbots.net/bot/1062083962773717053/vote)",
+        embed = discord.Embed(title='Vote',
+                              description='[Top.gg](https://top.gg/bot/1062083962773717053/vote)\n'
+                                          '[discord-botlist.eu](https://discord-botlist.eu/vote/1062083962773717053)\n'
+                                          '[discordbotlist.com](https://discordbotlist.com/bots/RoboHashira/upvote)\n'
+                                          '[Void Bots](https://voidbots.net/bot/1062083962773717053/vote)',
                               color=self.bot.colour.teal())
         embed.set_thumbnail(url=self.bot.user.avatar.url)
         await ctx.send(embed=embed)

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import enum
-from datetime import datetime
-
 import yarl
 from discord.ext import commands
 from discord.utils import MISSING
@@ -148,14 +146,14 @@ class TempChannel(NamedTuple):
     format: str
 
     def __format__(self, format_spec: str) -> str:
-        return self.format.replace("%username", format_spec)
+        return self.format.replace('%username', format_spec)
 
     @classmethod
     def from_list(cls, data: list[Any]) -> TempChannel:
         return cls(data[0], data[1])
 
     def to_field(self, value: Any) -> str:
-        return f"`{value}.` <#{self.id}> • `{self.format}`"
+        return f'`{value}.` <#{self.id}> • `{self.format}`'
 
 
 class GuildConfig:
@@ -163,10 +161,10 @@ class GuildConfig:
         self.cog: Config = cog
         self.bot: RoboHashira = cog.bot
 
-        self.id: int = record["id"]
-        self.music_channel: Optional[int] = record["music_channel"]
-        self.music_message_id: Optional[int] = record["music_message_id"]
-        self.temp_channels: List[TempChannel] = [TempChannel.from_list(data) for data in record["temp_channels"]]
+        self.id: int = record['id']
+        self.music_channel: Optional[int] = record['music_channel']
+        self.music_message_id: Optional[int] = record['music_message_id']
+        self.temp_channels: List[TempChannel] = [TempChannel.from_list(data) for data in record['temp_channels']]
 
     async def edit(
             self,
@@ -216,13 +214,13 @@ class Config(commands.Cog):
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
-        return discord.PartialEmoji(name="green_shield", id=1104493156088696883)
+        return discord.PartialEmoji(name='green_shield', id=1104493156088696883)
 
     @cache.cache()
     async def get_config(self, guild_id: int) -> Optional[GuildConfig]:
-        record = await self.bot.pool.fetchrow("SELECT * FROM guild_mod_config WHERE id=$1;", guild_id)
+        record = await self.bot.pool.fetchrow('SELECT * FROM guild_mod_config WHERE id=$1;', guild_id)
         if record is None:
-            query = "INSERT INTO guild_mod_config (id) VALUES ($1) RETURNING *;"
+            query = 'INSERT INTO guild_mod_config (id) VALUES ($1) RETURNING *;'
             record = await self.bot.pool.fetchrow(query, guild_id)
         return GuildConfig(self, record)
 
@@ -249,14 +247,14 @@ class Config(commands.Cog):
         connection = connection or self.bot.pool
 
         if channel is None:
-            query = "SELECT 1 FROM plonks WHERE guild_id=$1 AND entity_id=$2;"
+            query = 'SELECT 1 FROM plonks WHERE guild_id=$1 AND entity_id=$2;'
             row = await connection.fetchrow(query, guild_id, member_id)
         else:
             if isinstance(channel, discord.Thread):
-                query = "SELECT 1 FROM plonks WHERE guild_id=$1 AND entity_id IN ($2, $3, $4);"
+                query = 'SELECT 1 FROM plonks WHERE guild_id=$1 AND entity_id IN ($2, $3, $4);'
                 row = await connection.fetchrow(query, guild_id, member_id, channel.id, channel.parent_id)
             else:
-                query = "SELECT 1 FROM plonks WHERE guild_id=$1 AND entity_id IN ($2, $3);"
+                query = 'SELECT 1 FROM plonks WHERE guild_id=$1 AND entity_id IN ($2, $3);'
                 row = await connection.fetchrow(query, guild_id, member_id, channel.id)
 
         return row is not None
@@ -285,7 +283,7 @@ class Config(commands.Cog):
         self, guild_id: int, *, connection: Optional[Connection | Pool] = None
     ) -> ResolvedCommandPermissions:
         connection = connection or self.bot.pool
-        query = "SELECT name, channel_id, whitelist FROM command_config WHERE guild_id=$1;"
+        query = 'SELECT name, channel_id, whitelist FROM command_config WHERE guild_id=$1;'
 
         records = await connection.fetch(query, guild_id)
         return ResolvedCommandPermissions(guild_id, records)
@@ -304,7 +302,7 @@ class Config(commands.Cog):
     async def _bulk_ignore_entries(self, ctx: GuildContext, entries: Iterable[discord.abc.Snowflake]) -> None:
         async with ctx.db.acquire() as con:
             async with con.transaction():
-                query = "SELECT entity_id FROM plonks WHERE guild_id=$1;"
+                query = 'SELECT entity_id FROM plonks WHERE guild_id=$1;'
                 records = await con.fetch(query, ctx.guild.id)
 
                 current_plonks = {r[0] for r in records}
@@ -350,14 +348,14 @@ class Config(commands.Cog):
 
         if len(entities) == 0:
             # shortcut for a single insert
-            query = "INSERT INTO plonks (guild_id, entity_id) VALUES ($1, $2) ON CONFLICT DO NOTHING;"
+            query = 'INSERT INTO plonks (guild_id, entity_id) VALUES ($1, $2) ON CONFLICT DO NOTHING;'
             await ctx.db.execute(query, ctx.guild.id, ctx.channel.id)
 
             self.is_plonked.invalidate_containing(f'{ctx.guild.id!r}:')
         else:
             await self._bulk_ignore_entries(ctx, entities)
 
-        await ctx.send(ctx.tick(True))
+        await ctx.stick(True)
 
     @ignore.command(name='list')
     @checks.is_mod()
@@ -367,7 +365,7 @@ class Config(commands.Cog):
         To use this command, you must have Ban Members and Manage Messages permissions.
         """
 
-        query = "SELECT entity_id FROM plonks WHERE guild_id=$1;"
+        query = 'SELECT entity_id FROM plonks WHERE guild_id=$1;'
 
         guild = ctx.guild
         records = await ctx.db.fetch(query, guild.id)
@@ -380,8 +378,8 @@ class Config(commands.Cog):
             async def format_page(self, entries: List, /) -> discord.Embed:
                 entries = plonk_iterator(ctx.bot, ctx.guild, entries)
                 embed = discord.Embed(timestamp=discord.utils.utcnow(), colour=formats.Colour.teal())
-                embed.set_footer(text=f"Requested by {ctx.author}", icon_url=ctx.author.avatar.url)
-                embed.set_author(name=f"Ignored Channels/Members", icon_url=ctx.guild.icon.url)
+                embed.set_footer(text=f'Requested by {ctx.author}', icon_url=ctx.author.avatar.url)
+                embed.set_author(name=f'Ignored Channels/Members', icon_url=ctx.guild.icon.url)
                 pages = []
                 async for index, entry in aenumerate(entries, start=self.current_page * self.per_page):
                     pages.append(f'{index + 1}. {entry}')
@@ -410,7 +408,7 @@ class Config(commands.Cog):
         To use this command you must have Ban Members and Manage Messages permissions.
         """
 
-        query = "DELETE FROM plonks WHERE guild_id=$1;"
+        query = 'DELETE FROM plonks WHERE guild_id=$1;'
         await ctx.db.execute(query, ctx.guild.id)
         self.is_plonked.invalidate_containing(f'{ctx.guild.id!r}:')
         await ctx.send('<:greenTick:1079249732364406854> Successfully cleared all ignores.')
@@ -424,15 +422,15 @@ class Config(commands.Cog):
         """
 
         if len(entities) == 0:
-            query = "DELETE FROM plonks WHERE guild_id=$1 AND entity_id=$2;"
+            query = 'DELETE FROM plonks WHERE guild_id=$1 AND entity_id=$2;'
             await ctx.db.execute(query, ctx.guild.id, ctx.channel.id)
         else:
-            query = "DELETE FROM plonks WHERE guild_id=$1 AND entity_id = ANY($2::bigint[]);"
+            query = 'DELETE FROM plonks WHERE guild_id=$1 AND entity_id = ANY($2::bigint[]);'
             entity_ids = [c.id for c in entities]
             await ctx.db.execute(query, ctx.guild.id, entity_ids)
 
         self.is_plonked.invalidate_containing(f'{ctx.guild.id!r}:')
-        await ctx.send(ctx.tick(True))
+        await ctx.stick(True)
 
     @unignore.command(name='all')
     @checks.is_mod()
@@ -473,11 +471,11 @@ class Config(commands.Cog):
 
         async with pool.acquire() as connection:
             async with connection.transaction():
-                query = f"DELETE FROM command_config WHERE guild_id=$1 AND name=$2 AND {subcheck};"
+                query = f'DELETE FROM command_config WHERE guild_id=$1 AND name=$2 AND {subcheck};'
 
                 await connection.execute(query, *args)
 
-                query = "INSERT INTO command_config (guild_id, channel_id, name, whitelist) VALUES ($1, $2, $3, $4);"
+                query = 'INSERT INTO command_config (guild_id, channel_id, name, whitelist) VALUES ($1, $2, $3, $4);'
 
                 try:
                     await connection.execute(query, guild_id, channel_id, name, whitelist)
@@ -583,7 +581,7 @@ class Config(commands.Cog):
             colour = self.bot.colour.teal()
 
             async def format_page(self, entries: List, /) -> discord.Embed:
-                embed = discord.Embed(timestamp=datetime.utcnow(),
+                embed = discord.Embed(timestamp=discord.utils.utcnow(),
                                       color=self.colour)
                 embed.set_author(name=f'Disabled Commands', icon_url=ctx.guild.icon.url)
                 embed.set_footer(text=f'{plural(len(disabled)):command}')
@@ -602,23 +600,23 @@ class Config(commands.Cog):
     async def global_block(self, ctx: GuildContext, object_id: int):
         """Blocks a user or guild globally."""
         await self.bot.add_to_blacklist(object_id)
-        await ctx.send(ctx.tick(True))
+        await ctx.stick(True)
 
     @_global.command(name='unblock')
     async def global_unblock(self, ctx: GuildContext, object_id: int):
         """Unblocks a user or guild globally."""
         await self.bot.remove_from_blacklist(object_id)
-        await ctx.send(ctx.tick(True))
+        await ctx.stick(True)
 
     @_global.command(name='track')
     async def global_track(self, ctx: GuildContext, *, object_url: str):
         """Tracks a user or guild globally."""
 
-        is_url = bool(yarl.URL(object_url.strip("<>")).host)
+        is_url = bool(yarl.URL(object_url.strip('<>')).host)
         if not is_url:
             return await ctx.send('<:redTick:1079249771975413910> This is not a valid URL.')
 
-        query = "INSERT INTO track_blacklist(url, reviewer_id) VALUES($1, $2) ON CONFLICT DO NOTHING RETURNING id;"
+        query = 'INSERT INTO track_blacklist(url, reviewer_id) VALUES($1, $2) ON CONFLICT DO NOTHING RETURNING id;'
         async with ctx.pool.acquire(timeout=300.0) as con:
             async with con.transaction():
                 record = await con.fetchval(query, object_url, ctx.author.id)
@@ -626,7 +624,7 @@ class Config(commands.Cog):
         if record is None:
             return await ctx.send('<:discord_info:1113421814132117545> This track is already being blacklisted.')
 
-        await ctx.send(ctx.tick(True) + f" This track is now being blacklisted with the ID `{record}`.")
+        await ctx.stick(True, f'This track is now being blacklisted with the ID `{record}`.')
 
 
 async def setup(bot: RoboHashira):

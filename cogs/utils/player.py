@@ -28,40 +28,40 @@ T = TypeVar('T')
 
 def is_dj(member: discord.Member) -> bool:
     """Checks if the Member has the DJ Role."""
-    role = discord.utils.get(member.guild.roles, name="DJ")
+    role = discord.utils.get(member.guild.roles, name='DJ')
     return role in member.roles
 
 
 def to_emoji(index: int) -> str:
-    return f"{index + 1}️⃣"
+    return f'{index + 1}️⃣'
 
 
 EMOJI_KEYS = {
-    "shuffle": {
-        True: discord.PartialEmoji(name="shuffle", id=1068273347919630417),
-        False: discord.PartialEmoji(name="shuffleNone", id=1068273345507905607)
+    'shuffle': {
+        True: discord.PartialEmoji(name='shuffle', id=1068273347919630417),
+        False: discord.PartialEmoji(name='shuffleNone', id=1068273345507905607)
     },
-    "pause_play": {
-        True: "⏸️",
-        False: "▶️"
+    'pause_play': {
+        True: '⏸️',
+        False: '▶️'
     },
-    "loop": {
-        True: discord.PartialEmoji(name="repeatTrack", id=1066048250529972355),
-        False: discord.PartialEmoji(name="repeatAll", id=1066048247585575002),
-        None: discord.PartialEmoji(name="repeatNone", id=1066048246235013231)
+    'loop': {
+        True: discord.PartialEmoji(name='repeatTrack', id=1066048250529972355),
+        False: discord.PartialEmoji(name='repeatAll', id=1066048247585575002),
+        None: discord.PartialEmoji(name='repeatNone', id=1066048246235013231)
     },
-    "like": {
-        True: discord.PartialEmoji(name="liked", id=1183539703333535764),
-        False: discord.PartialEmoji(name="un_liked", id=1183539705023836250)
+    'like': {
+        True: discord.PartialEmoji(name='liked', id=1183539703333535764),
+        False: discord.PartialEmoji(name='un_liked', id=1183539705023836250)
     }
 }
 
 
 def source_emoji(source: str) -> PartialEmoji:
-    return {"youtube": PartialEmoji(name="YouTube", id=1066146818884382770),
-            "spotify": PartialEmoji(name="spotify", id=1066177938858455090),
-            "soundcloud": PartialEmoji(name="soundcloud", id=1066184529452204093)
-            }.get(source, PartialEmoji(name="offline", id=1085666365689573438))
+    return {'youtube': PartialEmoji(name='YouTube', id=1066146818884382770),
+            'spotify': PartialEmoji(name='spotify', id=1066177938858455090),
+            'soundcloud': PartialEmoji(name='soundcloud', id=1066184529452204093)
+            }.get(source, PartialEmoji(name='offline', id=1085666365689573438))
 
 
 class PlayingState(enum.Enum):
@@ -92,7 +92,7 @@ class Player(wavelink.Player):
     async def check_blacklist(self, result: wavelink.Playable | wavelink.Playlist) -> bool:
         """Returns True if the track is on the blacklist."""
         blacklisted_urls = {record['url'] for record in
-                            await self.bot.pool.fetch("SELECT url FROM track_blacklist")}
+                            await self.bot.pool.fetch('SELECT url FROM track_blacklist')}
         if isinstance(result, wavelink.Playlist):
             return any(track.uri in blacklisted_urls for track in result.tracks)
         else:
@@ -120,7 +120,7 @@ class Player(wavelink.Player):
             else:
                 results = await wavelink.Playable.search(query)
         except Exception as exc:
-            log.error(f"Error while searching for {query!r}", exc_info=exc)
+            log.error(f'Error while searching for {query!r}', exc_info=exc)
             return None
 
         if not results:
@@ -145,9 +145,9 @@ class Player(wavelink.Player):
             self, track: wavelink.Playable, obj: Optional[Context | discord.Interaction] = None
     ) -> Message:
         embed = discord.Embed(
-            title="Track Enqueued",
-            description=f"`🎶` Added [{track.title}]({track.uri}) to the queue.\n"
-                        f"`🎵` Track at Position **#{self.queue.all.index(track) + 1}/{len(self.queue.all)}**",
+            title='Track Enqueued',
+            description=f'`🎶` Added [{track.title}]({track.uri}) to the queue.\n'
+                        f'`🎵` Track at Position **#{self.queue.all.index(track) + 1}/{len(self.queue.all)}**',
             color=formats.Colour.teal()
         )
 
@@ -157,7 +157,7 @@ class Player(wavelink.Player):
         if not obj:
             return await self.view.channel.send(embed=embed)
 
-        embed.set_footer(text=f"Requested by {obj.user}", icon_url=obj.user.display_avatar.url)
+        embed.set_footer(text=f'Requested by {obj.user}', icon_url=obj.user.display_avatar.url)
 
         if isinstance(obj, Context):
             return await obj.send(embed=embed, delete_after=15)
@@ -212,101 +212,101 @@ class PlayerPanel(discord.ui.View, Generic[T]):
             track = self.player.current
 
             embed = discord.Embed(
-                title="Music Player Panel",
-                description="This is the Bot's control panel where you can easily perform actions "
-                            "of the bot without using a command.",
+                title='Music Player Panel',
+                description='This is the Bot\'s control panel where you can easily perform actions '
+                            'of the bot without using a command.',
                 timestamp=discord.utils.utcnow(),
                 color=self.bot.colour.teal()
             )
 
-            artist = f"[{track.author}]({track.artist.url})" if track.artist.url else track.author
+            artist = f'[{track.author}]({track.artist.url})' if track.artist.url else track.author
 
             embed.add_field(
-                name="╔ Now Playing:",
-                value=f"╠ **Track:** [{track.title}]({track.uri})\n"
-                      f"╠ **Artist:** {artist}\n"
-                      f"╠ **Bound to:** {self.player.channel.mention}\n"
-                      f"╠ **Position in Queue:** {self.player.queue.all.index(self.player.current) + 1}/{len(self.player.queue.all)}",
+                name='╔ Now Playing:',
+                value=f'╠ **Track:** [{track.title}]({track.uri})\n'
+                      f'╠ **Artist:** {artist}\n'
+                      f'╠ **Bound to:** {self.player.channel.mention}\n'
+                      f'╠ **Position in Queue:** {self.player.queue.all.index(self.player.current) + 1}/{len(self.player.queue.all)}',
                 inline=False
             )
 
             if track.album and track.album.name:
                 embed.add_field(
-                    name="╠ Album:",
-                    value=f"[{track.album.name}]({track.album.url})" if track.album.url else track.album.name,
+                    name='╠ Album:',
+                    value=f'[{track.album.name}]({track.album.url})' if track.album.url else track.album.name,
                     inline=False
                 )
 
             if track.playlist:
                 embed.add_field(
-                    name="╠ Playlist:",
-                    value=f"[{track.playlist.name}]({track.playlist.url})" if track.playlist.url else track.playlist.name,
+                    name='╠ Playlist:',
+                    value=f'[{track.playlist.name}]({track.playlist.url})' if track.playlist.url else track.playlist.name,
                     inline=False
                 )
 
             if self.player.queue.listen_together.enabled:
                 user = self.player.guild.get_member(self.player.queue.listen_together.user_id)
-                embed.add_field(name="╠ Listening-together with:", value=f"{user.mention}'s Spotify", inline=False)
+                embed.add_field(name='╠ Listening-together with:', value=f'{user.mention}\'s Spotify', inline=False)
 
-            embed.add_field(name="╠ Status:",
-                            value=f"```swift\n{formats.player_stamp(track.length, self.player.position)}```"
-                            if not track.is_stream else "```swift\n[ 🔴 LIVE STREAM ]```",
+            embed.add_field(name='╠ Status:',
+                            value=f'```swift\n{formats.player_stamp(track.length, self.player.position)}```'
+                            if not track.is_stream else '```swift\n[ 🔴 LIVE STREAM ]```',
                             inline=False)
 
-            embed.add_field(name="╠ Loop Mode:", value=str(self.player.queue.mode).split(".")[1].upper())
-            embed.add_field(name="═ Shuffle Mode:",
-                            value={False: "<:off1:1077001786184974356> **``Off``**",
-                                   True: "<:on1:1077001788051423293> **``On``**"}.get(self.player.queue.shuffle))
-            embed.add_field(name=f"╠ Volume:",
-                            value=f"```swift\n{converters.VisualStamp(0, 100, self.player.volume)} [ {self.player.volume}% ]```",
+            embed.add_field(name='╠ Loop Mode:', value=str(self.player.queue.mode).split('.')[1].upper())
+            embed.add_field(name='═ Shuffle Mode:',
+                            value={False: '<:off1:1077001786184974356> **``Off``**',
+                                   True: '<:on1:1077001788051423293> **``On``**'}.get(self.player.queue.shuffle))
+            embed.add_field(name=f'╠ Volume:',
+                            value=f'```swift\n{converters.VisualStamp(0, 100, self.player.volume)} [ {self.player.volume}% ]```',
                             inline=False)
 
             if track.recommended:
-                embed.add_field(name="╠ Recommended via:",
-                                value=f"{source_emoji(track.source)} **`{track.source.title()}`**",
+                embed.add_field(name='╠ Recommended via:',
+                                value=f'{source_emoji(track.source)} **`{track.source.title()}`**',
                                 inline=False)
 
             if not self.player.queue.future_is_empty:
                 next_track = self.player.queue[0]
                 eta = discord.utils.utcnow() + datetime.timedelta(
                     milliseconds=(self.player.current.length - self.player.position))
-                embed.add_field(name="╠ Next Track:",
-                                value=f"[{next_track.title}]({next_track.uri}) {discord.utils.format_dt(eta, 'R')}")
+                embed.add_field(name='╠ Next Track:',
+                                value=f'[{next_track.title}]({next_track.uri}) {discord.utils.format_dt(eta, 'R')}')
 
             if artwork := self.player.current.artwork:
                 embed.set_thumbnail(url=artwork)
 
-            # Add "╚" to the last field's name
+            # Add '╚' to the last field's name
             field = embed.fields[-1]
-            embed.set_field_at(index=len(embed.fields) - 1, name="╚ " + field.name[1:],
+            embed.set_field_at(index=len(embed.fields) - 1, name='╚ ' + field.name[1:],
                                value=field.value, inline=field.inline)
 
-            embed.set_footer(text=f"{'Auto-Playing' if self.player.autoplay != 2 else 'Manual-Playing'} • last updated")
+            embed.set_footer(text=f'{'Auto-Playing' if self.player.autoplay != 2 else 'Manual-Playing'} • last updated')
         else:
             embed = discord.Embed(
-                title="Music Player Panel",
-                description="The control panel was closed, the queue is currently empty and I got nothing to do.\n"
-                            "You can start a new player session by invoking the </play:1079059790380142762> command.\n\n"
-                            "*Once you play a new track, this message is going to be the new player panel if it's not deleted, otherwise I'm going to create a new panel.*",
+                title='Music Player Panel',
+                description='The control panel was closed, the queue is currently empty and I got nothing to do.\n'
+                            'You can start a new player session by invoking the </play:1079059790380142762> command.\n\n'
+                            '*Once you play a new track, this message is going to be the new player panel if it\'s not deleted, otherwise I\'m going to create a new panel.*',
                 timestamp=discord.utils.utcnow(),
                 color=self.bot.colour.teal()
             )
-            embed.set_footer(text="last updated")
+            embed.set_footer(text='last updated')
             embed.set_thumbnail(url=self.player.guild.icon.url if not None else None)
 
-        return {"embed": embed, "view": self}
+        return {'embed': embed, 'view': self}
 
     def disabled_state(self, check: bool = None) -> bool:
         return check or bool(self.state == PlayingState.STOPPED) or self.player.queue.all_is_empty
 
     def update_buttons(self):
         button_updates = [
-            (self.on_shuffle, self.disabled_state(), EMOJI_KEYS["shuffle"][self.player.queue.shuffle]),
+            (self.on_shuffle, self.disabled_state(), EMOJI_KEYS['shuffle'][self.player.queue.shuffle]),
             (self.on_back, self.disabled_state(self.player.queue.history_is_empty), None),
-            (self.on_pause_play, self.disabled_state(), EMOJI_KEYS["pause_play"][
+            (self.on_pause_play, self.disabled_state(), EMOJI_KEYS['pause_play'][
                 True if not self.player.paused and self.player.playing else False]),
             (self.on_forward, self.disabled_state(self.player.queue.future_is_empty), None),
-            (self.on_loop, self.disabled_state(), EMOJI_KEYS["loop"][
+            (self.on_loop, self.disabled_state(), EMOJI_KEYS['loop'][
                 True if self.player.queue.mode == wavelink.QueueMode.loop else False
                 if self.player.queue.mode == wavelink.QueueMode.loop_all else None]),
             (self.on_stop, self.disabled_state(), None),
@@ -330,23 +330,23 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         elif author_vc and bot_vc and (author_vc == bot_vc) and (
                 interaction.user.voice.deaf or interaction.user.voice.self_deaf):
             return await interaction.response.send_message(
-                "<:redTick:1079249771975413910> You are deafened, please undeafen yourself to use this menu.",
+                '<:redTick:1079249771975413910> You are deafened, please undeafen yourself to use this menu.',
                 ephemeral=True
             )
         elif (not author_vc and bot_vc) or (author_vc and bot_vc and author_vc != bot_vc):
             return await interaction.response.send_message(
-                f"<:redTick:1079249771975413910> You must be in {bot_vc.mention} to use this menu.",
+                f'<:redTick:1079249771975413910> You must be in {bot_vc.mention} to use this menu.',
                 ephemeral=True
             )
         elif not author_vc:
             return await interaction.response.send_message(
-                "<:redTick:1079249771975413910> You must be in a voice channel to use this menu.",
+                '<:redTick:1079249771975413910> You must be in a voice channel to use this menu.',
                 ephemeral=True
             )
 
         if retry_after := self.cooldown.update_rate_limit(interaction):
             return await interaction.response.send_message(
-                f"<:redTick:1079249771975413910> You are being rate limited. Try again in {retry_after:.2f} seconds.",
+                f'<:redTick:1079249771975413910> You are being rate limited. Try again in {retry_after:.2f} seconds.',
                 ephemeral=True
             )
 
@@ -397,7 +397,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
 
     @discord.ui.button(
         style=discord.ButtonStyle.grey,
-        emoji=EMOJI_KEYS["shuffle"][False],
+        emoji=EMOJI_KEYS['shuffle'][False],
         disabled=True
     )
     async def on_shuffle(self, interaction: discord.Interaction, button: discord.ui.Button):  # noqa
@@ -429,7 +429,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
 
     @discord.ui.button(
         style=discord.ButtonStyle.blurple,
-        emoji=EMOJI_KEYS["pause_play"][False],
+        emoji=EMOJI_KEYS['pause_play'][False],
         disabled=True
     )
     async def on_pause_play(self, interaction: discord.Interaction, button: discord.ui.Button):  # noqa
@@ -448,7 +448,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
 
     @discord.ui.button(
         style=discord.ButtonStyle.grey,
-        emoji=EMOJI_KEYS["loop"][None],
+        emoji=EMOJI_KEYS['loop'][None],
         disabled=True
     )
     async def on_loop(self, interaction: discord.Interaction, button: discord.ui.Button):  # noqa
@@ -472,7 +472,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         await self.stop()
         await self.player.disconnect()
         await interaction.response.send_message(
-            f"<:greenTick:1079249732364406854> Stopped Track and cleaned up queue.",
+            f'<:greenTick:1079249732364406854> Stopped Track and cleaned up queue.',
             delete_after=10)
 
     @discord.ui.button(
@@ -486,14 +486,14 @@ class PlayerPanel(discord.ui.View, Generic[T]):
 
     @discord.ui.button(
         style=discord.ButtonStyle.green,
-        emoji=EMOJI_KEYS["like"][False],
+        emoji=EMOJI_KEYS['like'][False],
         disabled=True
     )
     async def on_like(self, interaction: discord.Interaction, button: discord.ui.Button):  # noqa
         from cogs.playlist import PlaylistTools
-        playlist_tools: PlaylistTools = self.bot.get_cog("PlaylistTools")  # noqa
+        playlist_tools: PlaylistTools = self.bot.get_cog('PlaylistTools')  # noqa
         if not playlist_tools:
-            return await interaction.response.send_message("This feature is currently disabled.", ephemeral=True)
+            return await interaction.response.send_message('This feature is currently disabled.', ephemeral=True)
 
         liked_songs = await playlist_tools.get_liked_songs(interaction.user.id)
 
@@ -503,12 +503,12 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         if self.player.current.uri not in liked_songs:
             await liked_songs.add_track(self.player.current)
             await interaction.response.send_message(
-                f"<:greenTick:1079249732364406854> Added `{self.player.current.title}` to your liked songs.",
+                f'<:greenTick:1079249732364406854> Added `{self.player.current.title}` to your liked songs.',
                 ephemeral=True)
         else:
             await liked_songs.remove_track(discord.utils.get(liked_songs.tracks, url=self.player.current.uri))
             await interaction.response.send_message(
-                f"<:greenTick:1079249732364406854> Removed `{self.player.current.title}` from your liked songs.",
+                f'<:greenTick:1079249732364406854> Removed `{self.player.current.title}` from your liked songs.',
                 ephemeral=True)
 
         playlist_tools.get_playlists.invalidate(playlist_tools, interaction.user.id)
@@ -542,10 +542,10 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         return self
 
 
-class AdjustVolumeModal(discord.ui.Modal, title="Volume Adjuster"):
+class AdjustVolumeModal(discord.ui.Modal, title='Volume Adjuster'):
     """Modal that prompts users for the volume to change to."""
-    number = discord.ui.TextInput(label="Volume Index", style=discord.TextStyle.short,
-                                  placeholder="Enter a Number between 1 and 100",
+    number = discord.ui.TextInput(label='Volume Index', style=discord.TextStyle.short,
+                                  placeholder='Enter a Number between 1 and 100',
                                   min_length=1, max_length=3)
 
     def __init__(self, _view: PlayerPanel, /):
@@ -554,7 +554,7 @@ class AdjustVolumeModal(discord.ui.Modal, title="Volume Adjuster"):
 
     async def on_submit(self, interaction: discord.Interaction, /):
         if not self.number.value.isdigit():
-            return await interaction.response.send_message("Please enter a valid number.", ephemeral=True)
+            return await interaction.response.send_message('Please enter a valid number.', ephemeral=True)
 
         value = int(self.number.value)
         await self._view.player.set_volume(value)
@@ -591,7 +591,7 @@ class TrackDisambiguatorView(discord.ui.View, Generic[T]):
         self.selected = self.tracks[index]
         self.stop()
 
-    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red, row=1)
+    @discord.ui.button(label='Cancel', style=discord.ButtonStyle.red, row=1)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:  # noqa
         self.selected = None
         self.stop()
@@ -617,12 +617,12 @@ class TrackDisambiguatorView(discord.ui.View, Generic[T]):
         self = cls(tracks=tracks)
         self.ctx = context
 
-        description = "\n".join(
-            f"{to_emoji(i)} [{track.title}]({track.uri}) by **{track.author}** | `{converters.convert_duration(track.length)}`"
+        description = '\n'.join(
+            f'{to_emoji(i)} [{track.title}]({track.uri}) by **{track.author}** | `{converters.convert_duration(track.length)}`'
             for i, track in enumerate(tracks)
         )
 
-        embed = discord.Embed(title="Select a Track",
+        embed = discord.Embed(title='Select a Track',
                               description=description,
                               timestamp=datetime.datetime.now(datetime.UTC),
                               color=context.client.colour.teal())  # noqa

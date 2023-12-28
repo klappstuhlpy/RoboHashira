@@ -23,7 +23,7 @@ from cogs.utils.context import Context
 log = logging.getLogger(__name__)
 
 
-def _prefix_callable(bot: RoboHashira, msg: discord.Message):
+def _callable_prefix(bot: RoboHashira, msg: discord.Message):
     user_id = bot.user.id
     base = [f'<@!{user_id}> ', f'<@{user_id}> ']
     if msg.guild is None:
@@ -77,7 +77,7 @@ class RoboHashira(commands.Bot):
             message_content=True,
         )
         super().__init__(
-            command_prefix=_prefix_callable,  # type: ignore
+            command_prefix=_callable_prefix,  # type: ignore
             pm_help=None,
             help_attrs=dict(hidden=True),
             chunk_guilds_at_startup=False,
@@ -106,43 +106,41 @@ class RoboHashira(commands.Bot):
 
     def __repr__(self) -> str:
         return (
-            f"<Bot id={self.user.id} name={self.user.name!r} "
-            f"discriminator={self.user.discriminator!r} bot={self.user.bot}>"
+            f'<Bot id={self.user.id} name={self.user.name!r} '
+            f'discriminator={self.user.discriminator!r} bot={self.user.bot}>'
         )
+
+    @property
+    def owner(self) -> discord.User:
+        return self.bot_app_info.owner
 
     async def setup_hook(self) -> None:
         self.session: aiohttp.ClientSession = aiohttp.ClientSession()
 
         self.blacklist: Config[bool] = Config('blacklist.json')
         self.prefixes: Config[list[str]] = Config('prefixes.json')
-        self.maintenance: Config[bool] = Config("maintenance.json")
-        self.temp_channels: Config[List[int]] = Config("temp_channels.json")
+        self.maintenance: Config[bool] = Config('maintenance.json')
+        self.temp_channels: Config[List[int]] = Config('temp_channels.json')
 
         self.bot_app_info = await self.application_info()
         self.owner_id = self.bot_app_info.owner.id
 
         try:
-            cache_handler = CacheFileHandler(cache_path=self.config.SRC_PATH + "/.cache")
-            self.spotipy_client = spotipy.Spotify(
-                auth_manager=SpotifyClientCredentials(cache_handler=cache_handler,
-                                                      **self.config.spotify)
-            )
-
-            nodes = [wavelink.Node(uri="http://138.197.179.156:8080", password="warmachine68")]
+            nodes = [wavelink.Node(uri='http://138.197.179.156:8080', password='warmachine68')]
 
             await wavelink.Pool.connect(nodes=nodes, client=self, cache_capacity=100)
         except Exception as exc:
-            log.error("Failed to establish a lavalink connection", exc_info=exc)
+            log.error('Failed to establish a lavalink connection', exc_info=exc)
 
         for extension in self.initial_extensions:
             try:
                 await self.load_extension(extension)
             except Exception as e:
-                log.error(f"Failed to load extension `{extension}`", exc_info=e)
+                log.error(f'Failed to load extension `{extension}`', exc_info=e)
 
-    def get_guild_prefixes(self, guild: Optional[discord.abc.Snowflake], *, local_inject=_prefix_callable) -> list[str]:
+    def get_guild_prefixes(self, guild: Optional[discord.abc.Snowflake], *, local_inject=_callable_prefix) -> list[str]:
         proxy_msg = ProxyObject(guild)
-        return local_inject(self, proxy_msg)  # type: ignore  # lying
+        return local_inject(self, proxy_msg)  # type: ignore
 
     def get_raw_guild_prefixes(self, guild_id: int) -> list[str]:
         return self.prefixes.get(guild_id, ['$', '!'])
@@ -155,69 +153,6 @@ class RoboHashira(commands.Bot):
         else:
             await self.prefixes.put(guild.id, sorted(set(prefixes), reverse=True))
 
-    @property
-    def owner(self) -> discord.User:
-        return self.bot_app_info.owner
-
-    def _clear_gateway_data(self) -> None:
-        one_week_ago = discord.utils.utcnow() - datetime.timedelta(days=7)
-        for shard_id, dates in self.identifies.items():
-            to_remove = [index for index, dt in enumerate(dates) if dt < one_week_ago]
-            for index in reversed(to_remove):
-                del dates[index]
-
-        for shard_id, dates in self.resumes.items():
-            to_remove = [index for index, dt in enumerate(dates) if dt < one_week_ago]
-            for index in reversed(to_remove):
-                del dates[index]
-
-    async def before_identify_hook(self, shard_id: Optional[int], *, initial: bool = False) -> None:
-        self._clear_gateway_data()
-        self.identifies[shard_id].append(discord.utils.utcnow())
-        await super().before_identify_hook(shard_id, initial=initial)
-
-    async def on_ready(self) -> None:
-        if not hasattr(self, "launched_at"):
-            self.launched_at = discord.utils.utcnow()
-
-        log.info(f"Ready as {self.user} (ID: {self.user.id})")
-
-        if self.maintenance.get("maintenance") is False:
-            await self.change_presence(
-                activity=discord.Activity(
-                    name=f'{self.full_member_count()} users',
-                    type=discord.ActivityType.listening))
-        else:
-            await self.change_presence(
-                activity=discord.Activity(type=discord.ActivityType.listening, name="🛠️ Maintenance Mode"),
-                status=discord.Status.dnd)
-
-    async def on_shard_resumed(self, shard_id: int):
-        log.info(f'Shard ID {shard_id} has resumed...')
-        self.resumes[shard_id].append(discord.utils.utcnow())
-
-    async def on_command_error(self, ctx: Context, error: commands.CommandError) -> None:
-        if isinstance(error, commands.NoPrivateMessage):
-            await ctx.author.send('This command cannot be used in private messages.')
-        elif isinstance(error, commands.DisabledCommand):
-            await ctx.author.send('Sorry. This command is disabled and cannot be used.')
-        elif isinstance(error, commands.CommandInvokeError):
-            original = error.original
-            if not isinstance(original, discord.HTTPException):
-                log.exception('In %s:', ctx.command.qualified_name, exc_info=original)
-        elif isinstance(error, commands.ArgumentParsingError):
-            await ctx.send(str(error))
-        elif isinstance(error, commands.MissingRequiredArgument):
-            await ctx.send(f"Missing required argument: `{error.param.name}`")
-        elif isinstance(error, commands.MissingRequiredFlag):
-            await ctx.send(f"Missing required flag: `{error.flag.name}`")
-        elif isinstance(error, commands.BotMissingPermissions):
-            missing = [perm.replace('_', ' ').replace('guild', 'server').title() for perm in error.missing_permissions]
-            await ctx.send(f"I don't have the permissions to perform this action.\n"
-                           f"Missing: `{', '.join(missing)}`")
-        elif isinstance(error, commands.CommandOnCooldown):
-            await ctx.send(f"<:warning:1113421726861238363> Slow down, you're on cooldown. Retry again in **{error.retry_after:.2f}s**.")
-
     async def add_to_blacklist(self, object_id: int):
         await self.blacklist.put(object_id, True)
 
@@ -227,15 +162,8 @@ class RoboHashira(commands.Bot):
         except KeyError:
             pass
 
-    def full_member_count(self) -> int:
-        members = 0
-        for guild in self.guilds:
-            members += getattr(guild, "member_count", 0)
-        return members
-
-    async def on_guild_join(self, guild: discord.Guild) -> None:
-        if guild.id in self.blacklist:
-            await guild.leave()
+    async def get_context(self, origin: Union[discord.Interaction, discord.Message], /, *, cls=Context) -> Context:
+        return await super().get_context(origin, cls=cls)
 
     async def log_spammer(self, ctx: Context, message: discord.Message, retry_after: float, *, autoblock: bool = False):
         guild_name = getattr(ctx.guild, 'name', 'No Guild (DMs)')
@@ -272,14 +200,14 @@ class RoboHashira(commands.Bot):
             STATUS_PREF = '<:redTick:1079249771975413910> **Critical:** '
             try:
                 await message.guild.system_channel.send(
-                    STATUS_PREF + f"While executing a Command, I wasn't be able to respond "
-                                  f"accordingly because I don't have the permissions to send "
-                                  f"messages in {message.channel.mention}.")
+                    STATUS_PREF + f'While executing a Command, I wasn\'t be able to respond '
+                                  f'accordingly because I don\'t have the permissions to send '
+                                  f'messages in {message.channel.mention}.')
             except discord.Forbidden:
                 await message.guild.owner.send(
-                    STATUS_PREF + "While executing a command in your server, I wasn't be able to respond "
-                                  "accordingly because I don't have the permissions to send messages in "
-                                  f"{message.channel.mention}.")
+                    STATUS_PREF + 'While executing a command in your server, I wasn\'t be able to respond '
+                                  'accordingly because I don\'t have the permissions to send messages in '
+                                  f'{message.channel.mention}.')
             finally:
                 self._error_message_log.append(message.channel.id)
                 return
@@ -302,36 +230,60 @@ class RoboHashira(commands.Bot):
 
         await self.invoke(ctx)
 
+    # EVENTS
+
+    async def on_ready(self) -> None:
+        if not hasattr(self, 'launched_at'):
+            self.launched_at = discord.utils.utcnow()
+
+        log.info(f'Ready as {self.user} (ID: {self.user.id})')
+
+        if self.maintenance.get('maintenance') is False:
+            await self.change_presence(
+                activity=discord.Activity(
+                    name=f'{self.full_member_count} users',
+                    type=discord.ActivityType.listening))
+        else:
+            await self.change_presence(
+                activity=discord.Activity(type=discord.ActivityType.listening, name='🛠️ Maintenance Mode'),
+                status=discord.Status.dnd)
+
+    async def on_shard_resumed(self, shard_id: int):
+        log.info(f'Shard ID {shard_id} has resumed...')
+        self.resumes[shard_id].append(discord.utils.utcnow())
+
+    async def on_guild_join(self, guild: discord.Guild) -> None:
+        if guild.id in self.blacklist:
+            await guild.leave()
+
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot:
             return
         await self.process_commands(message)
 
-    @staticmethod
-    async def query_member_named(
-            guild: discord.Guild, argument: str, *, cache: bool = False
-    ) -> Optional[discord.Member]:
-        """Queries a member by their name, name + discrim, or nickname.
-        Parameters
-        ------------
-        guild: Guild
-            The guild to query the member in.
-        argument: str
-            The name, nickname, or name + discrim combo to check.
-        cache: bool
-            Whether to cache the results of the query.
-        timetools.
-        ---------
-        Optional[Member]
-            The member matching the query or None if not found.
-        """
-        if len(argument) > 5 and argument[-5] == '#':
-            username, _, discriminator = argument.rpartition('#')
-            members = await guild.query_members(username, limit=100, cache=cache)
-            return discord.utils.get(members, name=username, discriminator=discriminator)
-        else:
-            members = await guild.query_members(argument, limit=100, cache=cache)
-            return discord.utils.find(lambda m: m.name == argument or m.nick == argument, members)
+    async def on_command_error(self, ctx: Context, error: commands.CommandError) -> None:
+        if isinstance(error, commands.NoPrivateMessage):
+            await ctx.author.send('This command cannot be used in private messages.')
+        elif isinstance(error, commands.DisabledCommand):
+            await ctx.author.send('Sorry. This command is disabled and cannot be used.')
+        elif isinstance(error, commands.CommandInvokeError):
+            original = error.original
+            if not isinstance(original, discord.HTTPException):
+                log.exception('In %s:', ctx.command.qualified_name, exc_info=original)
+        elif isinstance(error, commands.ArgumentParsingError):
+            await ctx.send(str(error))
+        elif isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send(f'Missing required argument: `{error.param.name}`')
+        elif isinstance(error, commands.MissingRequiredFlag):
+            await ctx.send(f'Missing required flag: `{error.flag.name}`')
+        elif isinstance(error, commands.BotMissingPermissions):
+            missing = [perm.replace('_', ' ').replace('guild', 'server').title() for perm in error.missing_permissions]
+            await ctx.send(f'I don\'t have the permissions to perform this action.\n'
+                           f'Missing: `{', '.join(missing)}`')
+        elif isinstance(error, commands.CommandOnCooldown):
+            await ctx.send(f'<:warning:1113421726861238363> Slow down, you\'re on cooldown. Retry again in **{error.retry_after:.2f}s**.')
+
+    # UTILS
 
     @staticmethod
     async def get_or_fetch_member(guild: discord.Guild, member_id: int) -> Optional[discord.Member]:
@@ -413,16 +365,21 @@ class RoboHashira(commands.Bot):
         hook = discord.Webhook.partial(id=wh_id, token=wh_token, session=self.session)
         return hook
 
-    async def get_context(self, origin: Union[discord.Interaction, discord.Message], /, *, cls=Context) -> Context:
-        return await super().get_context(origin, cls=cls)
-
     async def close(self) -> None:
         await super().close()
+
         if hasattr(self, 'session'):
             await self.session.close()
 
     async def start(self, *args, **kwargs) -> None:
         await super().start(token=self.config.token, reconnect=True)
+
+    @property
+    def full_member_count(self) -> int:
+        members = 0
+        for guild in self.guilds:
+            members += getattr(guild, 'member_count', 0)
+        return members
 
     @property
     def config(self):

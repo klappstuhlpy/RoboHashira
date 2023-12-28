@@ -18,6 +18,21 @@ from discord.ext.commands.context import DeferTyping
 from discord.utils import MISSING, T
 from discord.ui import View
 
+from cogs.utils import formats
+
+
+def tick(_: Optional[bool], label: Optional[str] = None) -> str:
+    """Returns a tick or cross emoji based on the value of `opt`."""
+    lookup = {
+        True: '<:greenTick:1079249732364406854>',
+        False: '<:redTick:1079249771975413910>',
+        None: '<:greyTick:1079250082819477634>',
+    }
+    emoji = lookup.get(_, '<:redTick:1079249771975413910>')
+    if label is not None:
+        return f'{emoji} {label}'
+    return emoji
+
 
 class EditTyping(Typing):
     """Custom Typing subclass to support cancelling typing when the message content changed"""
@@ -246,19 +261,9 @@ class Context(commands.Context):
         await view.wait()
         return view.value
 
-    def tick(self, opt: Optional[bool], label: Optional[str] = None) -> str:
-        lookup = {
-            True: '<:greenTick:1079249732364406854>',
-            False: '<:redTick:1079249771975413910>',
-            None: '<:greyTick:1079250082819477634>',
-        }
-        emoji = lookup.get(opt, '<:redTick:1079249771975413910>')
-        if label is not None:
-            return f'{emoji}: {label}'
-        return emoji
-
-    async def send_tick(self, opt: Optional[bool], content: Optional[str] = None, **kwargs: Any) -> Message:
-        return await self.send(f"{self.tick(opt)} {content or ''}", **kwargs)
+    async def stick(self, _: Optional[bool], content: Optional[str] = None, **kwargs: Any) -> Message:
+        """Sends a tick or cross emoji based on the value of `x` with an optional message."""
+        return await self.send(f'{tick(_)} {content or ''}', **kwargs)
 
     @property
     def session(self) -> ClientSession:

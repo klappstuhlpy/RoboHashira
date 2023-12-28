@@ -13,13 +13,13 @@ from bot import RoboHashira
 
 def preview_embed(guild: discord.Guild) -> discord.Embed:
     embed = discord.Embed(
-        title="Music Player Panel",
-        description=f"The **control panel** was closed, the Queue is currently empty and I got nothing to do.\n"
-                    f"You can start a new player session by invoking the </play:1079059790380142762> command.\n\n"
-                    f"*Once you play a new track, this message is going to be the new player panel if it's not deleted, otherwise I'm going to create a new panel.*",
+        title='Music Player Panel',
+        description=f'The **control panel** was closed, the Queue is currently empty and I got nothing to do.\n'
+                    f'You can start a new player session by invoking the </play:1079059790380142762> command.\n\n'
+                    f'*Once you play a new track, this message is going to be the new player panel if it\'s not deleted, otherwise I\'m going to create a new panel.*',
         timestamp=discord.utils.utcnow(),
         color=formats.Colour.teal())
-    embed.set_footer(text="last updated")
+    embed.set_footer(text='last updated')
     embed.set_thumbnail(url=guild.icon.url if not None else None)
     return embed
 
@@ -30,23 +30,23 @@ class ChooseView(discord.ui.View):
         self.cog: Setup = cog
         self.bot: RoboHashira = cog.bot
 
-    @discord.ui.button(label="Create a Text Channel", custom_id="create-channel", emoji="➕",
+    @discord.ui.button(label='Create a Text Channel', custom_id='create-channel', emoji='➕',
                        style=discord.ButtonStyle.green)
     async def create_channel(self, interaction: discord.Interaction, button: discord.ui.Button):  # noqa
         await interaction.message.delete()
-        channel = await interaction.guild.create_text_channel(name="🎶hashira-music",
+        channel = await interaction.guild.create_text_channel(name='🎶hashira-music',
                                                               category=interaction.channel.category)
         await channel.edit(slowmode_delay=3,
-                           topic=f"This is the Channel where you can see {self.bot.user.mention}'s current playing songs.\n"
-                                 f"You can interact with the **control panel** and manage the current songs.\n"
-                                 f"\n"
-                                 f"__Be careful not to delete the **control panel** message.__\n"
-                                 f"If you accidentally deleted the message, you have to redo the setup with </setup:1066792241978425528>.\n"
-                                 f"\n"
-                                 f"ℹ️** | Every Message if not pinned, gets deleted within 60 seconds.**")
+                           topic=f'This is the Channel where you can see {self.bot.user.mention}\'s current playing songs.\n'
+                                 f'You can interact with the **control panel** and manage the current songs.\n'
+                                 f'\n'
+                                 f'__Be careful not to delete the **control panel** message.__\n'
+                                 f'If you accidentally deleted the message, you have to redo the setup with </setup:1066792241978425528>.\n'
+                                 f'\n'
+                                 f'ℹ️** | Every Message if not pinned, gets deleted within 60 seconds.**')
 
         await interaction.response.send_message(
-            f"<:greenTick:1079249732364406854> Successfully set the new player channel to {channel.mention}.")
+            f'<:greenTick:1079249732364406854> Successfully set the new player channel to {channel.mention}.')
 
         message = await channel.send(embed=preview_embed(interaction.guild))
         await message.pin()
@@ -55,7 +55,7 @@ class ChooseView(discord.ui.View):
         config: GuildConfig = await self.bot.cfg.get_config(interaction.guild.id)
         await config.edit(music_channel=channel.id, music_message_id=message.id)
 
-    @discord.ui.button(label="Cancel", custom_id="cancel", style=discord.ButtonStyle.red)
+    @discord.ui.button(label='Cancel', custom_id='cancel', style=discord.ButtonStyle.red)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.message.delete()
 
@@ -69,9 +69,9 @@ class Setup(commands.Cog):
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
-        return discord.PartialEmoji(name="staff_animated", id=1076911514193231974)
+        return discord.PartialEmoji(name='staff_animated', id=1076911514193231974)
 
-    @commands.hybrid_group(name="dj", description="Manage the DJ Role.")
+    @commands.hybrid_group(name='dj', description='Manage the DJ Role.')
     @checks.hybrid_permissions_check(manage_roles=True)
     @commands.guild_only()
     async def _dj(self, ctx: Context):
@@ -81,66 +81,65 @@ class Setup(commands.Cog):
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @_dj.command(name="add", description="Adds the DJ Role with which you have extended control rights to a member.")
-    @app_commands.describe(member="The member you want to add the DJ Role to.")
+    @_dj.command(name='add', description='Adds the DJ Role with which you have extended control rights to a member.')
+    @app_commands.describe(member='The member you want to add the DJ Role to.')
     async def dj_add(self, ctx: Context, member: discord.Member):
         """Adds the DJ Role with which you have extended control rights to a member."""
-        djRole = discord.utils.get(ctx.guild.roles, name="DJ")
+        djRole = discord.utils.get(ctx.guild.roles, name='DJ')
         if djRole is None:
             try:
-                djRole = await ctx.guild.create_role(name="DJ")
+                djRole = await ctx.guild.create_role(name='DJ')
 
                 await member.add_roles(djRole)
                 return await ctx.send(
-                    f"<:greenTick:1079249732364406854> Added and created the {djRole.mention} role to user {member}.",
+                    f'<:greenTick:1079249732364406854> Added and created the {djRole.mention} role to user {member}.',
                     ephemeral=True)
             except commands.BotMissingPermissions:
                 return await ctx.send(
-                    embed=discord.Embed(title="Missing Required Permissions",
-                                        description=f"<:redTick:1079249771975413910> An error occurred while executing ``/dj add``.\n"
-                                                    f"There is currently no ``DJ`` role."
-                                                    f"In order to create one and manage roles,\ni need to have the ``MANAGE_ROLES`` permission.",
+                    embed=discord.Embed(title='Missing Required Permissions',
+                                        description=f'<:redTick:1079249771975413910> An error occurred while executing ``/dj add``.\n'
+                                                    f'There is currently no ``DJ`` role.'
+                                                    f'In order to create one and manage roles,\ni need to have the ``MANAGE_ROLES`` permission.',
                                         color=discord.Color.red()).set_footer(
-                        text=f"Requested by: {ctx.author}", icon_url=ctx.author.avatar.url), ephemeral=True,
+                        text=f'Requested by: {ctx.author}', icon_url=ctx.author.avatar.url), ephemeral=True,
                     delete_after=10)
 
         if djRole in member.roles:
-            return await ctx.send(f"<:redTick:1079249771975413910> {member} already has the DJ role.", ephemeral=True)
+            return await ctx.stick(False, f'{member} already has the DJ role.', ephemeral=True)
         await member.add_roles(djRole)
-        await ctx.send_tick(True, "Added the {djRole.mention} role to user {member}.",
-                            ephemeral=True)
+        await ctx.stick(True, f'Added the {djRole.mention} role to user {member}.', ephemeral=True)
 
-    @_dj.command(name="remove",
-                 description="Removes the DJ Role with which you have extended control rights from a member.")
-    @app_commands.describe(member="The member you want to remove the DJ Role from.")
+    @_dj.command(name='remove',
+                 description='Removes the DJ Role with which you have extended control rights from a member.')
+    @app_commands.describe(member='The member you want to remove the DJ Role from.')
     async def dj_remove(self, ctx: Context, member: discord.Member):
         """Removes the DJ Role with which you have extended control rights from a member."""
-        djRole = discord.utils.get(ctx.guild.roles, name="DJ")
+        djRole = discord.utils.get(ctx.guild.roles, name='DJ')
         if djRole:
             try:
                 if djRole not in member.roles:
-                    return await ctx.send(f"<:redTick:1079249771975413910> {member} has not the DJ role.",
-                                          ephemeral=True)
+                    return await ctx.stick(False, f'{member} has not the DJ role.',
+                                           ephemeral=True)
 
                 await member.remove_roles(djRole)
                 return await ctx.send(
-                    f"<:greenTick:1079249732364406854> Removed the {djRole.mention} role from user {member.mention}.",
+                    f'<:greenTick:1079249732364406854> Removed the {djRole.mention} role from user {member.mention}.',
                     ephemeral=True)
             except commands.BotMissingPermissions:
                 return await ctx.send(
-                    embed=discord.Embed(title="RHashira Missing Required Permissions",
-                                        description=f"An error occurred while executing ``/dj remove``.\n"
-                                                    f"In order manage the roles,\ni need to have the ``MANAGE_ROLES`` permission.",
+                    embed=discord.Embed(title='RHashira Missing Required Permissions',
+                                        description=f'An error occurred while executing ``/dj remove``.\n'
+                                                    f'In order manage the roles,\ni need to have the ``MANAGE_ROLES`` permission.',
                                         color=discord.Color.red()).set_footer(
-                        text=f"Requested by: {ctx.author}", icon_url=ctx.author.avatar.url), ephemeral=True,
+                        text=f'Requested by: {ctx.author}', icon_url=ctx.author.avatar.url), ephemeral=True,
                     delete_after=10)
         else:
-            return await ctx.send_tick(False, "There is currently no existing DJ role.",
-                                       ephemeral=True, delete_after=10)
+            return await ctx.stick(False, 'There is currently no existing DJ role.',
+                                   ephemeral=True, delete_after=10)
 
     # SETUP
 
-    @commands.hybrid_group(name="setup", description="Start the Music configuration setup.", fallback="set")
+    @commands.hybrid_group(name='setup', description='Start the Music configuration setup.', fallback='set')
     @commands.guild_only()
     @checks.hybrid_permissions_check(manage_channels=True)
     async def setup(self, ctx: Context, channel: Optional[discord.TextChannel] = None):
@@ -154,22 +153,22 @@ class Setup(commands.Cog):
 
         if not channel:
             embed = discord.Embed(
-                title="In which text channel should the **plugins control panel** be displayed?\n",
-                description=f"**If you want to add an existing channel, use `{ctx.prefix}setup <#channel>`.**")
+                title='In which text channel should the **plugins control panel** be displayed?\n',
+                description=f'**If you want to add an existing channel, use `{ctx.prefix}setup <#channel>`.**')
             embed.set_thumbnail(url=ctx.guild.icon.url)
             await ctx.send(embed=embed, view=ChooseView(self))
         else:
             await channel.edit(slowmode_delay=3,
-                               topic=f"This is the Channel where you can see {self.bot.user.mention}'s current playing songs.\n"
-                                     f"You can interact with the **control panel** and manage the current songs.\n"
-                                     f"\n"
-                                     f"__Be careful not to delete the **control panel** message.__\n"
-                                     f"If you accidentally deleted the message, you have to redo the setup with </setup:1066792241978425528>.\n"
-                                     f"\n"
-                                     f"ℹ️** | Every Message if not pinned, gets deleted within 60 seconds.**")
+                               topic=f'This is the Channel where you can see {self.bot.user.mention}\'s current playing songs.\n'
+                                     f'You can interact with the **control panel** and manage the current songs.\n'
+                                     f'\n'
+                                     f'__Be careful not to delete the **control panel** message.__\n'
+                                     f'If you accidentally deleted the message, you have to redo the setup with </setup:1066792241978425528>.\n'
+                                     f'\n'
+                                     f'ℹ️** | Every Message if not pinned, gets deleted within 60 seconds.**')
 
             await ctx.send(
-                f"<:greenTick:1079249732364406854> Successfully set the new player channel to {channel.mention}."
+                f'<:greenTick:1079249732364406854> Successfully set the new player channel to {channel.mention}.'
             )
 
             message = await channel.send(embed=preview_embed(ctx.guild))
@@ -179,15 +178,14 @@ class Setup(commands.Cog):
             config: GuildConfig = await self.bot.cfg.get_config(ctx.guild.id)
             await config.edit(music_channel=channel.id, music_message_id=message.id)
 
-    @setup.command(name="reset", description="Reset the Music configuration setup.")
+    @setup.command(name='reset', description='Reset the Music configuration setup.')
     @commands.guild_only()
     @checks.hybrid_permissions_check(manage_channels=True)
     async def setup_reset(self, ctx: Context):
         """Reset the Music configuration setup."""
         config: GuildConfig = await self.bot.cfg.get_config(ctx.guild.id)
         if not config or (not config.music_channel or not config.music_message_id):
-            return await ctx.send_tick(False, "There is currently no Music Configuration.",
-                                       ephemeral=True, delete_after=10)
+            return await ctx.stick(False, 'There is currently no Music Configuration.', ephemeral=True, delete_after=10)
 
         await config.edit(music_channel=None, music_message_id=None)
         await ctx.send('<:greenTick:1079249732364406854> The Music Configuration for this Guild has been deleted.',

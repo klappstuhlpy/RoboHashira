@@ -40,13 +40,13 @@ class plural:
 
     def __format__(self, format_spec: str) -> str:
         s = self.sized
-        singular, sep, plural = format_spec.partition('|')
-        plural = plural or f'{singular}s'
+        singular, sep, _plural = format_spec.partition('|')
+        _plural = _plural or f'{singular}s'
         if self.pass_content:
-            return singular if abs(s) == 1 else plural
+            return singular if abs(s) == 1 else _plural
 
         if abs(s) != 1:
-            return f'{s} {plural}'
+            return f'{s} {_plural}'
         return f'{s} {singular}'
 
 
@@ -58,32 +58,32 @@ def readable_time(seconds: int | float, decimal: bool = False, short: bool = Fal
     years, months = divmod(months, 12)
 
     attrs = {
-        "y" if short else "year": years,
-        "mo" if short else "month": months,
-        "d" if short else "day": days,
-        "hr" if short else "hour": hours,
-        "m" if short else "minute": minutes,
-        "s" if short else "second": seconds,
+        'y' if short else 'year': years,
+        'mo' if short else 'month': months,
+        'd' if short else 'day': days,
+        'hr' if short else 'hour': hours,
+        'm' if short else 'minute': minutes,
+        's' if short else 'second': seconds,
     }
 
     output = []
     for unit, value in attrs.items():
         value = round(value, 2 if decimal else None)
         if value > 0:
-            output.append(f"{value}{' ' * (not short)}{unit}{('s' if value != 1 else '') * (not short)}")
+            output.append(f'{value}{' ' * (not short)}{unit}{('s' if value != 1 else '') * (not short)}')
 
-    return ", ".join(output)
+    return ', '.join(output)
 
 
 def shorten_number(number: int | float) -> str:
-    number = float(f"{number:.3g}")
+    number = float(f'{number:.3g}')
     magnitude = 0
 
     while abs(number) >= 1000:
         magnitude += 1
         number /= 1000
 
-    return f"{f'{number:f}'.rstrip('0').rstrip('.')}{['', 'K', 'M', 'B', 'T'][magnitude]}"
+    return f'{f'{number:f}'.rstrip('0').rstrip('.')}{['', 'K', 'M', 'B', 'T'][magnitude]}'
 
 
 class Colour(discord.Colour):
@@ -94,7 +94,7 @@ class Colour(discord.Colour):
 
     @classmethod
     def transparent(cls) -> Self:
-        return cls(formats.Colour.teal())
+        return cls(0x2F3136)
 
     @classmethod
     def lime_green(cls) -> Self:
@@ -258,14 +258,14 @@ def format_dt(dt: datetime.datetime, style: Optional[str] = None) -> str:
 
 def truncate(text: str, length: int) -> str:
     if len(text) > length:
-        return text[:length - 1] + "…"
+        return text[:length - 1] + '…'
     return text
 
 
 def truncate_iterable(iterable: Iterable[Any], length: int, attribute: str = None) -> str:
     if len(iterable) > length:  # type: ignore
-        return ", ".join(iterable[:length]) + ", …"
-    return ", ".join(iterable)
+        return ', '.join(iterable[:length]) + ', …'
+    return ', '.join(iterable)
 
 
 def WrapList(list_: list, length: int):

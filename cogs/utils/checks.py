@@ -116,7 +116,7 @@ def intr(n: float) -> int:
 def is_player_connected():
     async def predicate(ctx: Context) -> bool:
         if not ctx.voice_client or not ctx.voice_client.channel:
-            await ctx.send_tick(False, "I'm not connected to a voice channel right now.", ephemeral=True)
+            await ctx.stick(False, "I'm not connected to a voice channel right now.", ephemeral=True)
             return False
 
         return True
@@ -127,7 +127,7 @@ def is_player_connected():
 def is_player_playing():
     async def predicate(ctx: Context) -> bool:
         if not ctx.voice_client or not ctx.voice_client.playing:  # noqa
-            await ctx.send_tick(False, "I'm not playing anything right now.", ephemeral=True)
+            await ctx.stick(False, "I'm not playing anything right now.", ephemeral=True)
             return False
 
         return True

@@ -1,10 +1,13 @@
+import sys
+from types import ModuleType
+
 from discord import app_commands
 import time
 import inspect
 import os
 import re
 from io import BufferedIOBase, BytesIO
-from typing import Any, List, Iterable, Sequence
+from typing import Any, List, Iterable, Sequence, Union
 from urllib.parse import urlparse
 
 import aiohttp
@@ -12,11 +15,24 @@ import discord
 from discord.ext import commands
 import datetime as dt
 
+from cogs.utils import errors
 from cogs.utils.context import GuildContext
 
-MENTION_REGEX = re.compile(r"<@(!?)([0-9]*)>")
+MENTION_REGEX = re.compile(r'<@(!?)([0-9]*)>')
 
 defaultBands = [{'band': i, 'gain': 0.0} for i in range(15)]
+
+
+def get_asset_url(obj: Union[discord.Guild, discord.User, discord.Member, discord.ClientUser]) -> str:
+    if isinstance(obj, discord.Guild):
+        if not obj.icon:
+            return ''
+        return obj.icon.url
+    if obj.avatar:
+        return obj.avatar.url
+    if isinstance(obj, (discord.Member, discord.ClientUser)):
+        if obj.display_avatar:
+            return obj.display_avatar.url
 
 
 class NamedDict:
@@ -126,21 +142,21 @@ def group_by_len(items: Sequence[str], type: bool = False) -> Iterable[str]:
             yield '\n'.join(items[start:])
 
 
-def format_list(items: list, seperator: str = "or", brackets: str = ""):
+def format_list(items: list, seperator: str = 'or', brackets: str = ""):
     new_items = []
     for i in items:
         if not re.match(MENTION_REGEX, i):
-            new_items.append(f"{brackets}{i}{brackets}")
+            new_items.append(f'{brackets}{i}{brackets}')
         else:
             new_items.append(str(i))
 
-    msg = ", ".join(list(new_items)[:-1]) + f" {seperator} " + list(new_items)[-1]
+    msg = ', '.join(list(new_items)[:-1]) + f' {seperator} ' + list(new_items)[-1]
     return msg
 
 
 def convert_duration(milliseconds) -> time:
     seconds = milliseconds / 1000
-    formaT = "%H:%M:%S" if seconds >= 3600 else "%M:%S"
+    formaT = '%H:%M:%S' if seconds >= 3600 else '%M:%S'
     return time.strftime(formaT, time.gmtime(seconds))
 
 
@@ -148,9 +164,9 @@ def ascii_list(items: List[str]) -> List[str]:
     texts = []
     for item in items:
         if item == items[-1]:
-            text = f"└─ {item}"
+            text = f'└─ {item}'
         else:
-            text = f"├─ {item}"
+            text = f'├─ {item}'
         texts.append(text)
 
     return texts
@@ -176,10 +192,10 @@ def VisualStamp(key_min: float, key_max: float, key_current: float, key_full: in
         before = key_min + key_current
         after = key_max - key_current
     for i in range(int(key_min + 2), int(key_max)):
-        if len(int(before / i) * "▬" + "🔘" + int(
-                after / i) * "▬") <= key_full:
-            return str(int(before / i) * "▬" + "🔘" + int(
-                after / i) * "▬")
+        if len(int(before / i) * '▬' + '🔘' + int(
+                after / i) * '▬') <= key_full:
+            return str(int(before / i) * '▬' + '🔘' + int(
+                after / i) * '▬')
 
 
 def EqualizerStamp(player) -> str:
@@ -198,9 +214,9 @@ def EqualizerStamp(player) -> str:
     except AttributeError:
         bands = defaultBands
 
-    output.append(" ".join(s.center(2) for s in ('╬' if k['gain'] > 0 else "║" for k in bands)))
-    output.append(" ".join(s.center(2) for s in ('╬' if k['gain'] == 0 else "║" for k in bands)))
-    output.append(" ".join(s.center(2) for s in ('╬' if k['gain'] < 0 else "║" for k in bands)))
+    output.append(' '.join(s.center(2) for s in ('╬' if k['gain'] > 0 else '║' for k in bands)))
+    output.append(' '.join(s.center(2) for s in ('╬' if k['gain'] == 0 else '║' for k in bands)))
+    output.append(' '.join(s.center(2) for s in ('╬' if k['gain'] < 0 else '║' for k in bands)))
 
     return '\n'.join(output)
 
@@ -221,17 +237,15 @@ def member_count(g, val):
     return mc
 
 
-URL_REGEX = re.compile(
-    r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*(),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
-)
+URL_REGEX = re.compile(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*(),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
 
 
 class URLObject:
     def __init__(self, url: str):
         if not URL_REGEX.match(url):
-            raise TypeError(f"Invalid url provided")
+            raise TypeError(f'Invalid url provided')
         self.url = url
-        self.filename = url.split("/")[-1]
+        self.filename = url.split('/')[-1]
 
     async def read(self, *, session=None) -> bytes:
         """Reads this asset."""
@@ -241,11 +255,11 @@ class URLObject:
                 if resp.status == 200:
                     return await resp.read()
                 elif resp.status == 404:
-                    raise discord.NotFound(resp, "asset not found")
+                    raise discord.NotFound(resp, 'asset not found')
                 elif resp.status == 403:
-                    raise discord.Forbidden(resp, "cannot retrieve asset")
+                    raise discord.Forbidden(resp, 'cannot retrieve asset')
                 else:
-                    raise discord.HTTPException(resp, "failed to get asset")
+                    raise discord.HTTPException(resp, 'failed to get asset')
         finally:
             if not session:
                 await _session.close()
@@ -265,22 +279,22 @@ class URLObject:
                 fp.seek(0)
             return written
 
-        with open(fp, "wb") as f:
+        with open(fp, 'wb') as f:
             return f.write(data)
 
     @property
     def spoiler(self):
         """Wether the file is a spoiler"""
-        return self.name.startswith("SPOILER_")
+        return self.name.startswith('SPOILER_')
 
     # noinspection PyAttributeOutsideInit
     @spoiler.setter
     def spoiler(self, value: bool):
         if value != self.spoiler:
             if value is True:
-                self.name = f"SPOILER_{self.name}"
+                self.name = f'SPOILER_{self.name}'
             else:
-                self.name = self.name.split("_", maxsplit=1)[1]
+                self.name = self.name.split('_', maxsplit=1)[1]
 
     async def to_file(self, *, session: aiohttp.ClientSession = None):
         return discord.File(
@@ -297,7 +311,7 @@ class FalseInt(object):
             try:
                 id = int(argument, base=10)
             except ValueError:
-                raise commands.BadArgument(f"`{argument}` is not a valid number or float.") from None
+                raise commands.BadArgument(f'`{argument}` is not a valid number or float.') from None
         return id
 
 
@@ -317,12 +331,12 @@ class URLConverter(commands.Converter):
     ) -> str:
         parsed_url = urlparse(argument)
 
-        if str(parsed_url.netloc).split(":")[0] in (
-                "127.0.0.1",
-                "localhost",
-                "0.0.0.0",
+        if str(parsed_url.netloc).split(':')[0] in (
+                '127.0.0.1',
+                'localhost',
+                '0.0.0.0',
         ) and not await ctx.bot.is_owner(ctx.author):
-            raise commands.BadArgument("Invalid URL")
+            raise commands.BadArgument('Invalid URL')
 
         return argument
 
@@ -343,11 +357,11 @@ class SpecificUserConverter(commands.Converter):
             if user := await self._get_user(ctx.bot, int(argument)):
                 return user
 
-        if match := re.match(r"<@!?([0-9]+)>", argument):
+        if match := re.match(r'<@!?([0-9]+)>', argument):
             if user := await self._get_user(ctx.bot, int(match.group(1))):
                 return user
 
-        raise commands.BadArgument("Failed to convert argument to user")
+        raise commands.BadArgument('Failed to convert argument to user')
 
 
 class QueueIndex(app_commands.Transformer):
@@ -357,8 +371,8 @@ class QueueIndex(app_commands.Transformer):
         except ValueError:
             return await interaction.response.send_message(
                 embed=discord.Embed(
-                    title="Error",
-                    description="Please provide a valid integer",
+                    title='Error',
+                    description='Please provide a valid integer',
                     color=discord.Color.red()
                 )
             )
@@ -366,16 +380,16 @@ class QueueIndex(app_commands.Transformer):
         if index <= 0:
             return await interaction.response.send_message(
                 embed=discord.Embed(
-                    title="Error",
-                    description="Please provide a valid integer that is greater than 0.",
+                    title='Error',
+                    description='Please provide a valid integer that is greater than 0.',
                     color=discord.Color.red()
                 )
             )
         if index > (total_tracks := interaction.guild.voice_client.queue.count):  # noqa
             return await interaction.response.send_message(
                 embed=discord.Embed(
-                    title="Error",
-                    description=f"There are only {total_tracks} tracks in the queue.",
+                    title='Error',
+                    description=f'There are only {total_tracks} tracks in the queue.',
                     color=discord.Color.red()
                 )
             )
@@ -395,13 +409,28 @@ class FileConverter(commands.Converter):
                     attachment = ctx.message.reference.resolved.attachments[0]
                 else:
                     raise commands.MissingRequiredArgument(
-                        inspect.Parameter("file", inspect.Parameter.KEYWORD_ONLY)
+                        inspect.Parameter('file', inspect.Parameter.KEYWORD_ONLY)
                     )
             else:
                 raise commands.MissingRequiredArgument(
-                    inspect.Parameter("file", inspect.Parameter.KEYWORD_ONLY)
+                    inspect.Parameter('file', inspect.Parameter.KEYWORD_ONLY)
                 )
         else:
             attachment = URLObject(await URLConverter().convert(ctx, file))
 
         return attachment
+
+
+class ModuleConverter(commands.Converter[ModuleType]):
+    """A converter interface to resolve imported modules."""
+
+    async def convert(self, ctx: commands.Context, argument: str) -> ModuleType:
+        """Converts a name into a :class:`ModuleType` object."""
+        argument = argument.lower().strip()
+        module = sys.modules.get(argument, None)
+
+        icon = '\N{OUTBOX TRAY}' if ctx.invoked_with == 'ml' else '\N{CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS}'
+
+        if not module:
+            raise errors.BadArgument(f'{icon}\N{WARNING SIGN} `{argument!r}` is not a valid module.')
+        return module

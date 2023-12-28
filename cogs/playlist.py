@@ -24,7 +24,7 @@ class PlaylistSelect(discord.ui.Select):
         options = [
             discord.SelectOption(
                 label='Start Page',
-                emoji=discord.PartialEmoji(name="vegaleftarrow", id=1066024601332748389),
+                emoji=discord.PartialEmoji(name='vegaleftarrow', id=1066024601332748389),
                 value='__index',
                 description='The front page of the Todo Menu.',
             )
@@ -86,13 +86,13 @@ class Playlist:
         self.cog: PlaylistTools = cog
         self.bot: RoboHashira = cog.bot
 
-        self.id = record["id"]
-        self.name = record["name"]
-        self.owner_id = record["user_id"]
-        self.created_at = record["created"]
+        self.id = record['id']
+        self.name = record['name']
+        self.owner_id = record['user_id']
+        self.created_at = record['created']
         self.tracks: list[PlaylistTrack] = []
 
-        self.is_liked_songs = self.name == "Liked Songs"
+        self.is_liked_songs = self.name == 'Liked Songs'
 
     def __contains__(self, item: str) -> bool:
         for track in self.tracks:
@@ -106,7 +106,7 @@ class Playlist:
         return False
 
     def __repr__(self):
-        return f"<Playlist id={self.id} name={self.name}>"
+        return f'<Playlist id={self.id} name={self.name}>'
 
     def __str__(self):
         return self.name
@@ -130,7 +130,7 @@ class Playlist:
     def choice_text(self) -> str:
         if self.is_liked_songs:
             return self.name
-        return f"[{self.id}] {self.name}"
+        return f'[{self.id}] {self.name}'
 
     async def add_track(self, track: Playable) -> PlaylistTrack:
         query = "INSERT INTO playlist_lookup (playlist_id, name, url) VALUES ($1, $2, $3) RETURNING *;"
@@ -147,17 +147,17 @@ class Playlist:
     def to_embeds(self) -> List[discord.Embed]:
         source = TextSource(prefix=None, suffix=None, max_size=3080)
         if len(self.tracks) == 0:
-            source.add_line("*This playlist is empty.*")
+            source.add_line('*This playlist is empty.*')
         else:
             for index, track in enumerate(self.tracks):
-                source.add_line(f"`{index + 1}.` {track.text}")
+                source.add_line(f'`{index + 1}.` {track.text}')
 
         embeds = []
         for page in source.pages:
-            embed = discord.Embed(title=f"{self.name} ({plural(len(self.tracks)):Track})",
+            embed = discord.Embed(title=f'{self.name} ({plural(len(self.tracks)):Track})',
                                   timestamp=self.created_at,
                                   description=page)
-            embed.set_footer(text=f"[{self.id}] • Created at")
+            embed.set_footer(text=f'[{self.id}] • Created at')
             embeds.append(embed)
 
         return embeds
@@ -165,22 +165,22 @@ class Playlist:
     def to_select_option(self, value: Any) -> discord.SelectOption:
         return discord.SelectOption(
             label=self.name,
-            emoji="\N{MULTIPLE MUSICAL NOTES}",
+            emoji='\N{MULTIPLE MUSICAL NOTES}',
             value=str(value),
-            description=f"{len(self.tracks)} Tracks"
+            description=f'{len(self.tracks)} Tracks'
         )
 
     async def delete(self) -> None:
-        query = 'DELETE FROM playlist WHERE id = $1'
+        query = "DELETE FROM playlist WHERE id = $1;"
         await self.bot.pool.execute(query, self.id)
 
-        query = 'DELETE FROM playlist_lookup WHERE playlist_id = $1'
+        query = "DELETE FROM playlist_lookup WHERE playlist_id = $1;"
         await self.bot.pool.execute(query, self.id)
 
         self.cog.get_playlists.invalidate(self, self.owner_id)
 
     async def clear(self) -> None:
-        query = 'DELETE FROM playlist_lookup WHERE playlist_id = $1'
+        query = "DELETE FROM playlist_lookup WHERE playlist_id = $1;"
         await self.bot.pool.execute(query, self.id)
 
         self.tracks = []
@@ -188,13 +188,13 @@ class Playlist:
 
 class PlaylistTrack:
     def __init__(self, record: asyncpg.Record):
-        self.id = record["id"]
-        self.name = record["name"]
-        self.url = record["url"]
+        self.id = record['id']
+        self.name = record['name']
+        self.url = record['url']
 
     @property
     def text(self) -> str:
-        return f"[{self.name}]({self.url}) (ID: {self.id})"
+        return f'[{self.name}]({self.url}) (ID: {self.id})'
 
 
 class PlaylistTools(commands.Cog):
@@ -206,14 +206,14 @@ class PlaylistTools(commands.Cog):
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
-        return discord.PartialEmoji(name="staff_animated", id=1076911514193231974)
+        return discord.PartialEmoji(name='staff_animated', id=1076911514193231974)
 
     async def cog_before_invoke(self, ctx: Context[BotT]) -> None:
         await self.initizalize_user(ctx.author)
 
     async def initizalize_user(self, user: discord.abc.User | discord.Member) -> int | None:
         # Creates a static Playlist for every new User that interacts with the Bot
-        # called "Liked Songs", this Playlist cannot be deleted
+        # called 'Liked Songs', this Playlist cannot be deleted
         # and is used to store all liked songs from the user.
 
         # The User can store Liked Songs using the Button the Player Control Panel
@@ -224,7 +224,7 @@ class PlaylistTools(commands.Cog):
 
         record = await self.bot.pool.fetchval(
             "INSERT INTO playlist (user_id, name, created) VALUES ($1, $2, $3) RETURNING id;",
-            user.id, "Liked Songs", discord.utils.utcnow()
+            user.id, 'Liked Songs', discord.utils.utcnow()
         )
         self.get_playlists.invalidate(self, user.id)
         return record
@@ -235,10 +235,10 @@ class PlaylistTools(commands.Cog):
         playlists = await self.get_playlists(interaction.user.id)
         results = fuzzy.finder(current, playlists, key=lambda p: p.choice_text, raw=True)
 
-        if interaction.command.name == "delete":
+        if interaction.command.name == 'delete':
             # Remove the Liked Songs Playlist from the results
             # because it must not be deleted
-            results.remove(discord.utils.get(results, name="Liked Songs"))
+            results.remove(discord.utils.get(results, name='Liked Songs'))
 
         return [
             app_commands.Choice(name=get_shortened_string(length, start, playlist.choice_text), value=playlist.id)
@@ -247,48 +247,47 @@ class PlaylistTools(commands.Cog):
 
     async def get_playlist(self, playlist_id: int, pass_tracks: bool = False) -> Optional[Playlist]:
         """Gets a poll by ID."""
-        record = await self.bot.pool.fetchrow("SELECT * FROM playlist WHERE id=$1", playlist_id)
+        record = await self.bot.pool.fetchrow("SELECT * FROM playlist WHERE id=$1;", playlist_id)
         playlist = Playlist(self, record) if record else None
         if playlist is not None and pass_tracks is False:
-            records = await self.bot.pool.fetch("SELECT * FROM playlist_lookup WHERE playlist_id=$1", playlist_id)
+            records = await self.bot.pool.fetch("SELECT * FROM playlist_lookup WHERE playlist_id=$1;", playlist_id)
             playlist.tracks = [PlaylistTrack(record) for record in records]
         return playlist
 
     async def get_liked_songs(self, user_id: int) -> Optional[Playlist]:
         """Gets a User 'Liked Songs' playlist."""
-        record = await self.bot.pool.fetchrow("SELECT * FROM playlist WHERE user_id=$1 AND name=$2 LIMIT 1;", user_id, 'Liked Songs')
+        record = await self.bot.pool.fetchrow("SELECT * FROM playlist WHERE user_id=$1 AND name=$2 LIMIT 1;", user_id,
+                                              'Liked Songs')
         playlist = Playlist(self, record) if record else None
         if playlist is not None:
-            records = await self.bot.pool.fetch("SELECT * FROM playlist_lookup WHERE playlist_id=$1", playlist.id)
+            records = await self.bot.pool.fetch("SELECT * FROM playlist_lookup WHERE playlist_id=$1;", playlist.id)
             playlist.tracks = [PlaylistTrack(record) for record in records]
         return playlist
 
     @cache.cache()
     async def get_playlists(self, user_id: int) -> list[Playlist]:
         """Get all playlists from a user."""
-        records = await self.bot.pool.fetch("SELECT * FROM playlist WHERE user_id=$1", user_id)
+        records = await self.bot.pool.fetch("SELECT * FROM playlist WHERE user_id=$1;", user_id)
         playlists = [Playlist(self, record) for record in records]
         for playlist in playlists:
-            records = await self.bot.pool.fetch("SELECT * FROM playlist_lookup WHERE playlist_id=$1", playlist.id)
+            records = await self.bot.pool.fetch("SELECT * FROM playlist_lookup WHERE playlist_id=$1;", playlist.id)
             playlist.tracks = [PlaylistTrack(record) for record in records]
         return playlists
 
-    @commands.hybrid_group(name="playlist", description="Manage your playlist.")
+    @commands.hybrid_group(name='playlist', description='Manage your playlist.')
     async def playlist(self, ctx: Context):
         """Manage your playlist."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @playlist.command(name="list", description="Display all your playlists and tracks.")
+    @playlist.command(name='list', description='Display all your playlists and tracks.')
     async def playlist_list(self, ctx: Context):
         """Display all your playlists and tracks."""
         playlists = await self.get_playlists(ctx.author.id)
         if not playlists:
-            return await ctx.send_tick(
-                False,
-                f"You don't have any playlists. You can create a playlist using `{ctx.prefix}playlist create`.",
-                ephemeral=True
-            )
+            return await ctx.stick(
+                False, f'You don\'t have any playlists. You can create a playlist using `{ctx.prefix}playlist create`.',
+                ephemeral=True)
 
         items = [playlist.field_tuple for playlist in playlists]
 
@@ -301,10 +300,9 @@ class PlaylistTools(commands.Cog):
             embed = discord.Embed(
                 title='Your Playlists',
                 description='Here are your playlists, use the buttons and view to navigate',
-                color=self.bot.colour.teal()
-            )
+                color=self.bot.colour.teal())
             embed.set_author(name=ctx.author, icon_url=ctx.author.avatar.url)
-            embed.set_footer(text=f"{plural(len(playlists)):playlist}")
+            embed.set_footer(text=f'{plural(len(playlists)):playlist}')
             for name, value in field[index:index + 12]:
                 embed.add_field(name=name, value=value, inline=False)
             embeds.append(embed)
@@ -313,33 +311,33 @@ class PlaylistTools(commands.Cog):
         PlaylistPaginator.start_pages = embeds
         await PlaylistPaginator.start(ctx, entries=embeds, per_page=1, ephemeral=True)
 
-    @playlist.command(name="create", description="Create a new playlist.")
-    @app_commands.describe(name="The name of your new playlist.")
+    @playlist.command(name='create', description='Create a new playlist.')
+    @app_commands.describe(name='The name of your new playlist.')
     async def playlist_create(self, ctx: Context, name: str):
         """Create a new playlist."""
         playlists = await self.get_playlists(ctx.author.id)
 
         if len(playlists) == 3 and not await self.bot.is_owner(ctx.author):
-            return await ctx.send_tick(False, "You can only have `3` playlists at the same time.",
-                                       ephemeral=True)
+            await ctx.stick(False, 'You can only have `3` playlists at the same time.',
+                            ephemeral=True)
+            return
 
         if any(playlist.name == name for playlist in playlists):
-            return await ctx.send(
-                "<:redTick:1079249771975413910> There is already a playlist with this name, please choose another name.",
-                ephemeral=True)
+            await ctx.stick(False, 'There is already a playlist with this name, please choose another name.',
+                            ephemeral=True)
+            return
 
         record = await self.bot.pool.fetchval(
             "INSERT INTO playlist (user_id, name, created) VALUES ($1, $2, $3) RETURNING id;",
-            ctx.author.id, name, discord.utils.utcnow()
-        )
+            ctx.author.id, name, discord.utils.utcnow())
         self.get_playlists.invalidate(self, ctx.author.id)
 
-        await ctx.send_tick(True, f"Successfully created playlist **{name}** [`{record}`].",
-                            ephemeral=True)
+        await ctx.stick(True, f'Successfully created playlist **{name}** [`{record}`].',
+                        ephemeral=True)
 
-    @playlist.command(name="play",
-                      description="Add the songs from you playlist to the plugins queue and play them.")
-    @app_commands.describe(playlist_id="The ID of your playlist to play.")
+    @playlist.command(name='play',
+                      description='Add the songs from you playlist to the plugins queue and play them.')
+    @app_commands.describe(playlist_id='The ID of your playlist to play.')
     @app_commands.autocomplete(playlist_id=playlist_id_autocomplete)  # type: ignore
     @commands.guild_only()
     @checks.is_listen_together()
@@ -349,42 +347,42 @@ class PlaylistTools(commands.Cog):
         player: Player = cast(Player, ctx.voice_client)
 
         if not player:
-            music: Music = self.bot.get_cog("Music")  # type: ignore
+            music: Music = self.bot.get_cog('Music')  # type: ignore
             player = await music.join(ctx)
 
         playlist = await self.get_playlist(playlist_id)
         if playlist is None:
-            return await ctx.send(
-                "<:redTick:1079249771975413910> There is no playlist with this id.",
-                ephemeral=True)
+            await ctx.stick(False, 'There is no playlist with this id.',
+                            ephemeral=True)
+            return
 
         if len(playlist) == 0:
-            return await ctx.send(
-                "<:redTick:1079249771975413910> There are no tracks in this playlist, please add some using `/playlist add`.",
-                ephemeral=True)
+            await ctx.stick(False, 'There are no tracks in this playlist, please add some using `/playlist add`.',
+                            ephemeral=True)
+            return
 
         old_stamp = len(player.queue.all) if not None else 0
 
         wait_message = await ctx.send(
-            f"*<a:loading:1072682806360166430> adding tracks from your playlist to the queue... please wait...*")
+            f'*<a:loading:1072682806360166430> adding tracks from your playlist to the queue... please wait...*')
 
         for track in playlist.tracks:
             track = await player.search(track.url)
             if not track:
                 continue
-            setattr(track, "requester", ctx.author)
+            setattr(track, 'requester', ctx.author)
             await player.queue.put_wait(track)
 
         new_queue = len(player.queue.all) - old_stamp
         succeeded = bool(new_queue == len(playlist.tracks))
 
         embed = discord.Embed(
-            description=f"`🎶` Successfully added **{new_queue}/{len(playlist.tracks)}** tracks from your playlist to the queue.",
+            description=f'`🎶` Successfully added **{new_queue}/{len(playlist.tracks)}** tracks from your playlist to the queue.',
             color=formats.Colour.teal())
         if not succeeded:
-            embed.description += f"\n<:warning:1076913452775383080> *Some tracks may not have been added due to unexpected issues.*"
-        embed.set_author(name=f"[{playlist.id}] • {playlist.name}", icon_url=ctx.author.avatar.url)
-        embed.set_footer(text="Now Playing")
+            embed.description += f'\n<:warning:1076913452775383080> *Some tracks may not have been added due to unexpected issues.*'
+        embed.set_author(name=f'[{playlist.id}] • {playlist.name}', icon_url=ctx.author.avatar.url)
+        embed.set_footer(text='Now Playing')
         await wait_message.delete()
         await ctx.send(embed=embed, delete_after=15)
 
@@ -394,41 +392,40 @@ class PlaylistTools(commands.Cog):
         else:
             await player.view.update()
 
-    @playlist.command(name="add",
-                      description="Adds the current playing track or a track via a direct-url to your playlist.")
-    @app_commands.describe(query="The direct-url of the track/playlist/album you want to add to your playlist.",
-                           playlist_id="The ID of your playlist.")
+    @playlist.command(name='add',
+                      description='Adds the current playing track or a track via a direct-url to your playlist.')
+    @app_commands.describe(query='The direct-url of the track/playlist/album you want to add to your playlist.',
+                           playlist_id='The ID of your playlist.')
     @app_commands.autocomplete(playlist_id=playlist_id_autocomplete)  # type: ignore
     async def playlist_add(self, ctx: Context, playlist_id: int, *, query: Optional[str] = None):
         """Adds the current playing track or a track via a direct-url to your playlist."""
         if not query and not (ctx.voice_client and ctx.voice_client.channel):
-            return await ctx.send(
-                "<:redTick:1079249771975413910> You have to provide either the `link` parameter or a current playing track.",
-                ephemeral=True)
+            await ctx.stick(False, 'You have to provide either the `link` parameter or a current playing track.',
+                            ephemeral=True)
+            return
 
         playlist = await self.get_playlist(playlist_id)
         if playlist is None:
-            return await ctx.send(
-                "<:redTick:1079249771975413910> There is no playlist with this name.",
-                ephemeral=True)
+            await ctx.stick(False, 'There is no playlist with this name.', ephemeral=True)
+            return
 
         if not query and ctx.guild.voice_client:
             player: Player = cast(Player, ctx.voice_client)
 
             if not player.current:
-                return await ctx.send(
-                    "<:redTick:1079249771975413910> You have to provide either the `link` parameter or a current playing track.",
-                    ephemeral=True)
+                await ctx.stick(False, 'You have to provide either the `link` parameter or a current playing track.',
+                                ephemeral=True)
+                return
 
             await playlist.add_track(player.current)
             embed = discord.Embed(
-                description=f"Added Track **[{player.current.title}]({player.current.uri})** to your playlist "
-                            f"at Position **#{len(playlist.tracks)}**",
+                description=f'Added Track **[{player.current.title}]({player.current.uri})** to your playlist '
+                            f'at Position **#{len(playlist.tracks)}**',
                 color=formats.Colour.teal()
             )
             embed.set_thumbnail(url=player.current.artwork)
             embed.set_author(name=ctx.author, icon_url=ctx.author.avatar.url)
-            embed.set_footer(text=f"[{playlist.id}] • {playlist.name}")
+            embed.set_footer(text=f'[{playlist.id}] • {playlist.name}')
             await ctx.send(embed=embed, ephemeral=True)
         else:
             temp_player = Player(self.bot)
@@ -437,13 +434,14 @@ class PlaylistTools(commands.Cog):
             result = await temp_player.search(query, wavelink.TrackSource.YouTubeMusic, ctx)
 
             if result is None:
-                return await ctx.send_tick(False, "Sorry! No results found matching your query.",
-                                           ephemeral=True, delete_after=10)
+                await ctx.stick(False, 'Sorry! No results found matching your query.',
+                                ephemeral=True, delete_after=10)
+                return
 
             if await temp_player.check_blacklist(result):
-                return await ctx.send(
-                    "<:redTick:1079249771975413910> Blacklisted track detected. Please try another one.",
-                    ephemeral=True, delete_after=10)
+                await ctx.stick(False, 'Blacklisted track detected. Please try another one.',
+                                ephemeral=True, delete_after=10)
+                return
 
             added = [track.url for track in playlist.tracks]
             if isinstance(result, wavelink.Playlist):
@@ -456,92 +454,88 @@ class PlaylistTools(commands.Cog):
                     success += 1
 
                 embed = discord.Embed(
-                    description=f"Added **{success}**/**{len(result.tracks)}** Tracks from {result.name} **[{result.name}]({result.url})** to your playlist.\n"
-                                f"Next Track at Position **#{len(playlist.tracks)}**",
-                    color=formats.Colour.teal()
-                )
+                    description=f'Added **{success}**/**{len(result.tracks)}** Tracks from {result.name} **[{result.name}]({result.url})** to your playlist.\n'
+                                f'Next Track at Position **#{len(playlist.tracks)}**',
+                    color=formats.Colour.teal())
                 embed.set_thumbnail(url=result.artwork)
                 embed.set_author(name=ctx.author, icon_url=ctx.author.avatar.url)
-                embed.set_footer(text=f"[{playlist.id}] • {playlist.name}")
+                embed.set_footer(text=f'[{playlist.id}] • {playlist.name}')
                 await ctx.send(embed=embed, ephemeral=True)
             else:
                 if result.uri in added:
-                    return await ctx.send(
-                        "<:redTick:1079249771975413910> This Track is already in your playlist.",
-                        ephemeral=True, delete_after=10)
+                    await ctx.stick(False, 'This Track is already in your playlist.',
+                                    ephemeral=True, delete_after=10)
+                    return
 
                 await playlist.add_track(result)
 
                 embed = discord.Embed(
-                    description=f"Added Track **[{result.title}]({result.uri})** to your playlist.\n"
-                                f"Track at Position **#{len(playlist.tracks)}**",
-                    color=formats.Colour.teal()
-                )
+                    description=f'Added Track **[{result.title}]({result.uri})** to your playlist.\n'
+                                f'Track at Position **#{len(playlist.tracks)}**',
+                    color=formats.Colour.teal())
                 embed.set_thumbnail(url=result.artwork)
                 embed.set_author(name=ctx.author, icon_url=ctx.author.avatar.url)
-                embed.set_footer(text=f"[{playlist.id}] • {playlist.name}")
+                embed.set_footer(text=f'[{playlist.id}] • {playlist.name}')
                 await ctx.send(embed=embed, ephemeral=True)
 
         self.get_playlists.invalidate(self, ctx.author.id)
 
-    @playlist.command(name="delete", description="Delete a playlist.")
-    @app_commands.describe(playlist_id="The ID of the playlist you want to delete.")
+    @playlist.command(name='delete', description='Delete a playlist.')
+    @app_commands.describe(playlist_id='The ID of the playlist you want to delete.')
     @app_commands.autocomplete(playlist_id=playlist_id_autocomplete)  # type: ignore
     async def playlist_delete(self, ctx: Context, playlist_id: int):
         """Delete a playlist."""
         playlist = await self.get_playlist(playlist_id, pass_tracks=True)
         if playlist is None:
-            return await ctx.send_tick(False, "No playlist found matching your query.",
-                                       ephemeral=True)
+            await ctx.stick(False, 'No playlist found matching your query.',
+                            ephemeral=True)
+            return
 
         await playlist.delete()
-        await ctx.send(
-            f"<:greenTick:1079249732364406854> Successfully deleted playlist **{playlist.name}** [`{playlist.id}`] "
-            f"and all corresponding entries.",
-            ephemeral=True
-        )
+        await ctx.stick(True, 'Successfully deleted playlist **{playlist.name}** [`{playlist.id}`] '
+                              f'and all corresponding entries.',
+                        ephemeral=True)
         self.get_playlists.invalidate(self, ctx.author.id)
 
-    @playlist.command(name="clear", description="Clear all Items in a playlist.")
-    @app_commands.describe(playlist_id="The ID of the playlist you want to delete.")
+    @playlist.command(name='clear', description='Clear all Items in a playlist.')
+    @app_commands.describe(playlist_id='The ID of the playlist you want to delete.')
     @app_commands.autocomplete(playlist_id=playlist_id_autocomplete)  # type: ignore
     async def playlist_clear(self, ctx: Context, playlist_id: int):
         """Clear all Items in a playlist."""
         playlist = await self.get_playlist(playlist_id, pass_tracks=True)
         if playlist is None:
-            return await ctx.send_tick(False, "No playlist found matching your query.",
-                                       ephemeral=True)
+            await ctx.stick(False, 'No playlist found matching your query.',
+                            ephemeral=True)
+            return
 
         await playlist.clear()
-        await ctx.send(
-            f"<:greenTick:1079249732364406854> Successfully purged all corresponding entries of "
-            f"playlist **{playlist.name}** [`{playlist.id}`].",
-            ephemeral=True
-        )
+        await ctx.stick(True, 'Successfully purged all corresponding entries of '
+                              f'playlist **{playlist.name}** [`{playlist.id}`].',
+                        ephemeral=True)
         self.get_playlists.invalidate(self, ctx.author.id)
 
-    @playlist.command(name="remove", description="Remove a track from your playlist.")
-    @app_commands.describe(playlist_id="The playlist ID you want to remove a track from.",
-                           track_id="The ID of the track to remove.")
+    @playlist.command(name='remove', description='Remove a track from your playlist.')
+    @app_commands.describe(playlist_id='The playlist ID you want to remove a track from.',
+                           track_id='The ID of the track to remove.')
     @app_commands.autocomplete(playlist_id=playlist_id_autocomplete)  # type: ignore
     async def playlist_remove(self, ctx: Context, playlist_id: int, track_id: int):
         """Remove a track from your playlist."""
         playlist = await self.get_playlist(playlist_id)
         if playlist is None:
-            return await ctx.send_tick(False, "No playlist found matching your query.",
-                                       ephemeral=True)
+            await ctx.stick(False, 'No playlist found matching your query.',
+                            ephemeral=True)
+            return
 
         track = discord.utils.get(playlist.tracks, id=track_id)
         if not track:
-            return await ctx.send_tick(False, "No track found matching your query.",
-                                       ephemeral=True)
+            await ctx.stick(False, 'No track found matching your query.',
+                            ephemeral=True)
+            return
 
         await playlist.remove_track(track)
-        await ctx.send(
-            f"<:greenTick:1079249732364406854> Successfully removed track **{track.name}** [`{track.id}`] "
-            f"from playlist **{playlist.name}** [`{playlist.id}`].",
-            ephemeral=True
-        )
+        await ctx.stick(True, 'Successfully removed track **{track.name}** [`{track.id}`] '
+                              f'from playlist **{playlist.name}** [`{playlist.id}`].',
+                        ephemeral=True)
 
 
 async def setup(bot):
