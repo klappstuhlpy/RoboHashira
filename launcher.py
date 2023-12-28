@@ -235,7 +235,7 @@ def setup_logging():
 
         root_log.setLevel(logging.INFO)
         handler = RotatingFileHandler(
-            filename=os.path.join(BOT_BASE_FOLDER, 'percy.log'),
+            filename=os.path.join(BOT_BASE_FOLDER, 'rhashira.log'),
             encoding='utf-8', mode='w', maxBytes=max_bytes, backupCount=5
         )
         handler.setFormatter(fmt)
