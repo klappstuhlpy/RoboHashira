@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, Any, Optional, TypedDict, List
 
 import asyncpg
 import discord
-import pkg_resources
 import psutil
 import pygit2
 from discord.ext import commands, tasks, menus
@@ -311,7 +310,7 @@ class Stats(commands.Cog):
         memory_usage = self.process.memory_full_info().uss / 1024 ** 2
         cpu_usage = self.process.cpu_percent() / psutil.cpu_count()
 
-        version = pkg_resources.get_distribution('discord.py').version
+        version = "N/A"
         embed.add_field(name='Guilds', value=guilds)
         embed.add_field(name='Commands Run', value=sum(self.bot.command_stats.values()))
         embed.add_field(name='Uptime', value=self.get_bot_uptime(brief=True))
