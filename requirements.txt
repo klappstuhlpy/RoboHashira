@@ -8,7 +8,7 @@ Pillow~=10.1.0
 psutil~=5.9.6
 pygit2~=1.13.3
 python-dateutil~=2.8.2
-spotipy~=2.23.0
+sqlalchemy
 typing_extensions>=4,<5
 lru-dict
 

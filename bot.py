@@ -8,11 +8,9 @@ from typing import Optional, List, Union, Dict, Iterable, AsyncIterator, Counter
 import aiohttp
 import asyncpg
 import discord
-import spotipy
 import wavelink
 from discord.ext import commands
 from expiringdict import ExpiringDict
-from spotipy import SpotifyClientCredentials, CacheFileHandler
 
 from cogs import EXTENSIONS
 from cogs.config import Config as ConfigCog
