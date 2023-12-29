@@ -122,7 +122,7 @@ class Admin(commands.Cog):
         if self.bot.maintenance.get('maintenance') is True:
             await self.bot.maintenance.put('maintenance', False)
             await ctx.send('<:greenTick:1079249732364406854> Maintenance mode disabled.', ephemeral=True)
-            await self.bot.change_presence(activity=discord.Activity(name=f'{self.bot.full_member_count()} users',
+            await self.bot.change_presence(activity=discord.Activity(name=f'{self.bot.full_member_count} users',
                                                                      type=discord.ActivityType.listening))
         else:
             await self.bot.maintenance.put('maintenance', True)
