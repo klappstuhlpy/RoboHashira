@@ -1,12 +1,8 @@
 import re
-import platform
 from pathlib import Path
 from typing import Callable, Dict, Any, TypeVar, Coroutine
 
-if platform.system() == 'Windows':
-    BOT_BASE_FOLDER = Path(__file__).parent.parent.parent.absolute()
-else:
-    BOT_BASE_FOLDER = Path(__file__).parent.parent.absolute()
+BOT_BASE_FOLDER = Path(__file__).parent.parent.parent.as_posix()
 
 ObjectHook = Callable[[Dict[str, Any]], Any]
 
