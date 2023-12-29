@@ -49,8 +49,9 @@ class TempChannels(commands.Cog):
         """List of current temporary channels."""
         config: GuildConfig = await self.bot.cfg.get_config(ctx.guild.id)
         if not config.temp_channels:
-            return await ctx.stick(False, 'There are no temporary channels set up.',
+            await ctx.stick(False, 'There are no temporary channels set up.',
                                    ephemeral=True)
+            return
 
         items = [temp.to_field(index) for index, temp in enumerate(config.temp_channels, 1)]
         embed = discord.Embed(title='Temporary Voice Hubs',
@@ -69,13 +70,13 @@ class TempChannels(commands.Cog):
         """Sets the channel where to create a temporary channel."""
         config: GuildConfig = await self.bot.cfg.get_config(ctx.guild.id)
         if config and discord.utils.get(config.temp_channels, id=channel.id):
-            return await ctx.stick(False, 'This is already a Temporary Voice Hub.',
+            await ctx.stick(False, 'This is already a Temporary Voice Hub.',
                                    ephemeral=True)
+            return
 
         await config.edit(temp_channels=[(TempChannel(channel.id, _format), ModifyType.ADD)])
         await ctx.send(
-            f'<:greenTick:1079249732364406854> Successfully added {channel.mention} with format **`{_format}`**.'
-        )
+            f'<:greenTick:1079249732364406854> Successfully added {channel.mention} with format **`{_format}`**.')
 
     @_temp.command(name='edit', description='Edit the format of a active Temp Channel.')
     @app_commands.rename(_format='format')
@@ -87,18 +88,21 @@ class TempChannels(commands.Cog):
         """Edit the format of an active Temp Channel."""
         config: GuildConfig = await self.bot.cfg.get_config(ctx.guild.id)
         if not config.temp_channels:
-            return await ctx.stick(False, 'There are no temporary channels set up.',
+            await ctx.stick(False, 'There are no temporary channels set up.',
                                    ephemeral=True)
+            return
 
         if not channel_id.isdigit():
-            return await ctx.stick(False, 'This is not a Temporary Voice Hub.',
+            await ctx.stick(False, 'This is not a Temporary Voice Hub.',
                                    ephemeral=True)
+            return
 
         channel_id = int(channel_id)
         channel = discord.utils.get(config.temp_channels, id=channel_id)
         if not channel:
-            return await ctx.stick(False, 'This is not a Temporary Voice Hub.',
+            await ctx.stick(False, 'This is not a Temporary Voice Hub.',
                                    ephemeral=True)
+            return
 
         await config.edit(temp_channels=[(TempChannel(channel_id, _format), ModifyType.EDIT)])
         await ctx.send(
@@ -113,18 +117,21 @@ class TempChannels(commands.Cog):
         """Remove an existing temp channel."""
         config: GuildConfig = await self.bot.cfg.get_config(ctx.guild.id)
         if not config.temp_channels:
-            return await ctx.stick(False, 'There are no temporary channels set up.',
+            await ctx.stick(False, 'There are no temporary channels set up.',
                                    ephemeral=True)
+            return
 
         if not channel_id.isdigit():
-            return await ctx.stick(False, 'This is not a Temporary Voice Hub.',
+            await ctx.stick(False, 'This is not a Temporary Voice Hub.',
                                    ephemeral=True)
+            return
 
         channel_id = int(channel_id)
         channel = discord.utils.get(config.temp_channels, id=channel_id)
         if not channel:
-            return await ctx.stick(False, 'This is not a Temporary Voice Hub.',
+            await ctx.stick(False, 'This is not a Temporary Voice Hub.',
                                    ephemeral=True)
+            return
 
         await config.edit(temp_channels=[(channel, ModifyType.REMOVE)])
         await ctx.send('<:greenTick:1079249732364406854> Successfully removed the Temporary Voice Hub.')
