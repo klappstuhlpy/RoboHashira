@@ -1,8 +1,6 @@
 from typing import Any, Optional
 from discord.ext.commands import UserInputError
 
-from cogs.utils.context import tick
-
 
 class BadArgument(UserInputError):
     """Custom Class with added functionality for prefix.
@@ -18,6 +16,6 @@ class BadArgument(UserInputError):
             # clean-up @everyone and @here mentions
             m = message.replace('@everyone', '@\u200beveryone').replace('@here', '@\u200bhere')
             # Add a Tick Emoji to the message
-            super().__init__(tick(False, m), *args)
+            super().__init__(f"<:redTick:1079249771975413910> {m}", *args)
         else:
             super().__init__(*args)

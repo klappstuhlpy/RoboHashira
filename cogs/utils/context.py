@@ -22,7 +22,7 @@ from cogs.utils import formats
 
 
 def tick(_: Optional[bool], label: Optional[str] = None) -> str:
-    """Returns a tick or cross emoji based on the value of `opt`."""
+    """Returns a tick or cross-emoji based on the value of `opt`."""
     lookup = {
         True: '<:greenTick:1079249732364406854>',
         False: '<:redTick:1079249771975413910>',
