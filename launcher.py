@@ -14,7 +14,6 @@ from typing import TypedDict, TYPE_CHECKING, cast
 import asyncpg
 import click
 import discord
-from sqlalchemy.ext.asyncio import create_async_engine
 
 import config
 
@@ -287,7 +286,6 @@ async def run_bot():
 
     async with RoboHashira() as bot:
         bot.pool = pool
-        bot.alchemy_engine = create_async_engine(bot.config.alchemy_postgresql, echo=False)  # ORM feature
         await bot.start()
 
 
