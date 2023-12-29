@@ -7,7 +7,7 @@ import inspect
 import os
 import re
 from io import BufferedIOBase, BytesIO
-from typing import Any, List, Iterable, Sequence, Union
+from typing import Any, List, Iterable, Sequence, Union, TYPE_CHECKING
 from urllib.parse import urlparse
 
 import aiohttp
@@ -16,7 +16,11 @@ from discord.ext import commands
 import datetime as dt
 
 from cogs.utils import errors
-from cogs.utils.context import GuildContext
+
+if TYPE_CHECKING:
+    from cogs.utils.context import GuildContext
+else:
+    GuildContext = 'GuildContext'
 
 MENTION_REGEX = re.compile(r'<@(!?)([0-9]*)>')
 

@@ -124,7 +124,7 @@ class RoboHashira(commands.Bot):
         self.owner_id = self.bot_app_info.owner.id
 
         try:
-            nodes = [wavelink.Node(uri='http://138.197.179.156:8080', password='warmachine68')]
+            nodes = [wavelink.Node(uri=self.config.wavelink.uri, password=self.config.wavelink.password)]
 
             await wavelink.Pool.connect(nodes=nodes, client=self, cache_capacity=100)
         except Exception as exc:

@@ -224,7 +224,7 @@ class Config(commands.Cog):
             record = await self.bot.pool.fetchrow(query, guild_id)
         return GuildConfig(self, record)
 
-    @cache.cache(strategy=cache.Strategy.lru, maxsize=1024, ignore_kwargs=True)
+    @cache.cache(strategy=cache.Strategy.LRU, maxsize=1024, ignore_kwargs=True)
     async def is_plonked(
         self,
         guild_id: int,
