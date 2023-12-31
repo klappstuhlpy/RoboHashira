@@ -38,6 +38,104 @@ class ProxyObject(discord.Object):
         self.guild: Optional[discord.abc.Snowflake] = guild
 
 
+class SpamControl:
+    """A class that implements a cooldown for spamming.
+
+    Attributes
+    ------------
+    bot: Percy
+        The bot instance.
+    spam_counter: CooldownMapping
+        The cooldown mapping.
+    _auto_spam_count: Counter[int]
+        The counter for auto spam.
+    spam_details: Dict[int, List[float]]
+        The details of the spam.
+    """
+
+    def __init__(self, bot: RoboHashira):
+        self.bot: RoboHashira = bot
+        self.spam_counter: commands.CooldownMapping = commands.CooldownMapping.from_cooldown(
+            10, 12.0, commands.BucketType.user)
+        self._auto_spam_count: Counter[int] = Counter()  # type: ignore
+        self.spam_details: Dict[int, List[float]] = defaultdict(list)
+
+    async def log_spammer(self, ctx: Context, message: discord.Message, retry_after: float, *, autoblock: bool = False):
+        guild_name = getattr(ctx.guild, 'name', 'No Guild (DMs)')
+        guild_id = getattr(ctx.guild, 'id', None)
+        fmt = 'User %s (ID: %s) in guild %r (ID: %s) is spamming | retry_after: %.2fs | autoblock: %s'
+        log.warning(fmt, message.author, message.author.id, guild_name, guild_id, retry_after, autoblock)
+
+        if not autoblock:
+            return
+
+        embed = discord.Embed(title='Auto-Blocked Member', colour=0xDDA453)
+        embed.add_field(name='Member', value=f'{message.author} (ID: {message.author.id})', inline=False)
+        embed.add_field(name='Guild Info', value=f'{guild_name} (ID: {guild_id})', inline=False)
+        embed.add_field(name='Channel Info', value=f'{message.channel} (ID: {message.channel.id}', inline=False)
+        embed.timestamp = discord.utils.utcnow()
+        await self.bot.stats_webhook.send(embed=embed, username='Percy Spam Control')
+
+    def calculate_penalty(self, user_id: int) -> int | None:
+        """Calculate penalty based on frequency and recency of spamming.
+
+        Note: Only applies to one day currently.
+        TODO: Advance it to be calulated based on the recency of spamming.
+
+        Returns
+        --------
+        int
+            The penalty to apply in seconds.
+        """
+        frequency = self._auto_spam_count[user_id]
+
+        if frequency > 15:
+            return None
+        elif 15 > frequency > 10:
+            return 7 * 24 * 60 * 60  # 1 week in seconds
+        else:
+            return 24 * 60 * 60  # 1 day in seconds
+
+    async def apply_penalty(self, user_id: int) -> None:
+        """Apply penalty to the user."""
+        penalty = self.calculate_penalty(user_id)
+        await self.bot.add_to_blacklist(user_id, duration=penalty)
+
+    async def is_spam(self, ctx: Context, message: discord.Message) -> bool:
+        """|coro|
+
+        Checks if the message is spam or not.
+
+        Parameters
+        -----------
+        ctx: Context
+            The invocation context.
+        message: Message
+            The message to check.
+
+        Returns
+        --------
+        bool
+            Whether the message is spam or not.
+        """
+        bucket = self.spam_counter.get_bucket(message)
+        retry_after = bucket and bucket.update_rate_limit(message.created_at.timestamp())
+        author_id = message.author.id
+
+        if retry_after and author_id != self.bot.owner_id:
+            self._auto_spam_count[author_id] += 1
+            if self._auto_spam_count[author_id] >= 5:
+                await self.apply_penalty(author_id)
+                del self._auto_spam_count[author_id]
+                await self.log_spammer(ctx, message, retry_after, autoblock=True)
+            else:
+                await self.log_spammer(ctx, message, retry_after)
+            return True
+        else:
+            self._auto_spam_count.pop(author_id, None)
+        return False
+
+
 class RoboHashira(commands.Bot):
     """
     A subclass of :class:`discord.Client` that implements a few extra features for the bot.
@@ -72,7 +170,7 @@ class RoboHashira(commands.Bot):
             voice_states=True,
             messages=True,
             reactions=True,
-            message_content=True,
+            message_content=True
         )
         super().__init__(
             command_prefix=_callable_prefix,  # type: ignore
@@ -82,21 +180,17 @@ class RoboHashira(commands.Bot):
             heartbeat_timeout=150.0,
             allowed_mentions=allowed_mentions,
             intents=intents,
-            enable_debug_events=True,
+            enable_debug_events=True
         )
         self.command_cache: Dict[int, list[discord.Message]] = ExpiringDict(
-            max_len=1000, max_age_seconds=60
-        )
+            max_len=1000, max_age_seconds=60)
 
         self.resumes: defaultdict[int, list[datetime]] = defaultdict(list)
         self.identifies: defaultdict[int, list[datetime]] = defaultdict(list)
 
-        self.spam_control: commands.CooldownMapping = commands.CooldownMapping.from_cooldown(
-            10, 12.0, commands.BucketType.user
-        )
-        self._auto_spam_count: Counter[int] = Counter()  # type: ignore # user_id: count
-        self._error_message_log: list[int] = []  # type: ignore # message_ids
+        self.spam_control: SpamControl = SpamControl(self)
 
+        self._error_message_log: list[int] = []  # type: ignore # message_ids
         self.context: Type[Context] = Context
         self.colour: Type[formats.Colour] = formats.Colour
 
@@ -105,8 +199,7 @@ class RoboHashira(commands.Bot):
     def __repr__(self) -> str:
         return (
             f'<Bot id={self.user.id} name={self.user.name!r} '
-            f'discriminator={self.user.discriminator!r} bot={self.user.bot}>'
-        )
+            f'discriminator={self.user.discriminator!r} bot={self.user.bot}>')
 
     @property
     def owner(self) -> discord.User:
@@ -151,7 +244,7 @@ class RoboHashira(commands.Bot):
         else:
             await self.prefixes.put(guild.id, sorted(set(prefixes), reverse=True))
 
-    async def add_to_blacklist(self, object_id: int):
+    async def add_to_blacklist(self, object_id: int, *, duration: Optional[int] = None):
         await self.blacklist.put(object_id, True)
 
     async def remove_from_blacklist(self, object_id: int):
@@ -162,22 +255,6 @@ class RoboHashira(commands.Bot):
 
     async def get_context(self, origin: Union[discord.Interaction, discord.Message], /, *, cls=Context) -> Context:
         return await super().get_context(origin, cls=cls)
-
-    async def log_spammer(self, ctx: Context, message: discord.Message, retry_after: float, *, autoblock: bool = False):
-        guild_name = getattr(ctx.guild, 'name', 'No Guild (DMs)')
-        guild_id = getattr(ctx.guild, 'id', None)
-        fmt = 'User %s (ID %s) in guild %r (ID %s) spamming, retry_after: %.2fs'
-        log.warning(fmt, message.author, message.author.id, guild_name, guild_id, retry_after)
-        if not autoblock:
-            return
-
-        wh = self.stats_webhook
-        embed = discord.Embed(title='Auto-blocked Member', colour=0xDDA453)
-        embed.add_field(name='Member', value=f'{message.author} (ID: {message.author.id})', inline=False)
-        embed.add_field(name='Guild Info', value=f'{guild_name} (ID: {guild_id})', inline=False)
-        embed.add_field(name='Channel Info', value=f'{message.channel} (ID: {message.channel.id}', inline=False)
-        embed.timestamp = discord.utils.utcnow()
-        return await wh.send(embed=embed)
 
     async def process_commands(self, message: discord.Message):
         ctx = await self.get_context(message)
@@ -191,40 +268,8 @@ class RoboHashira(commands.Bot):
         if ctx.guild is not None and ctx.guild.id in self.blacklist:
             return
 
-        if not message.channel.permissions_for(message.guild.me).send_messages:
-            if message.channel.id in self._error_message_log:
-                return
-
-            STATUS_PREF = '<:redTick:1079249771975413910> **Critical:** '
-            try:
-                await message.guild.system_channel.send(
-                    STATUS_PREF + f'While executing a Command, I wasn\'t be able to respond '
-                                  f'accordingly because I don\'t have the permissions to send '
-                                  f'messages in {message.channel.mention}.')
-            except discord.Forbidden:
-                await message.guild.owner.send(
-                    STATUS_PREF + 'While executing a command in your server, I wasn\'t be able to respond '
-                                  'accordingly because I don\'t have the permissions to send messages in '
-                                  f'{message.channel.mention}.')
-            finally:
-                self._error_message_log.append(message.channel.id)
-                return
-
-        bucket = self.spam_control.get_bucket(message)
-        current = message.created_at.timestamp()
-        retry_after = bucket and bucket.update_rate_limit(current)
-        author_id = message.author.id
-        if retry_after and author_id != self.owner_id:
-            self._auto_spam_count[author_id] += 1
-            if self._auto_spam_count[author_id] >= 5:
-                await self.add_to_blacklist(author_id)
-                del self._auto_spam_count[author_id]
-                await self.log_spammer(ctx, message, retry_after, autoblock=True)
-            else:
-                await self.log_spammer(ctx, message, retry_after)
+        if await self.spam_control.is_spam(ctx, message):
             return
-        else:
-            self._auto_spam_count.pop(author_id, None)
 
         await self.invoke(ctx)
 
