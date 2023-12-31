@@ -7,7 +7,7 @@ The Bot is designed as a Music Bot with a variety of featueres, such as Temporar
 
 Before running the bot, make sure you have the following installed:
 
-- Python >=3.11: [Download Python](https://www.python.org/downloads/)
+- Python >=3.12: [Download Python](https://www.python.org/downloads/)
 - PostgreSQL: [Download PostgreSQL](https://www.postgresql.org/download/)
 
 ## Installation
@@ -44,32 +44,22 @@ To configure the PostgreSQL database for use by the bot, go to the directory whe
 - Setup a ``config.py`` File:
 
 ```py
-from pathlib import Path
-
-SRC_PATH = Path(__file__).parent.absolute().as_posix()
+from types import SimpleNamespace
 
 client_id = 0  # Bot ID
 client_secret = ''  # Bot secret
 token = ''  # Bot token
-dev_token = ''  # Bot token for development
 
 topgg_key = ''  # Top.gg API Key
 mystbin_key = ''  # Mystbin API Key
 dbots_key = ''  # Discord Bots List
 
 postgresql = ''  # Your Postgresql connection string
+
 stat_webhook = ('', '')  # Webhook for discord channel for stats
 
-spotify = {  # Use Spotify API
-    "client_id": "",
-    "client_secret": ""
-}
-
-
-class rapidapi:  # For lyrics feature
-    api_key = ''
-    api_host = ''
-
+rapidapi = SimpleNamespace(api_key='', api_host='')  # For lyrics feature
+wavelink = SimpleNamespace(url='', password='')
 ```
 
 ## License

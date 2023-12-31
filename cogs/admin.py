@@ -16,7 +16,7 @@ from asyncpg import Record
 from discord.ext import commands
 from contextlib import redirect_stdout
 
-from .utils import formats
+from .utils import formats, constants
 from .utils.context import Context
 from bot import RoboHashira
 from .utils.paginator import BasePaginator, TextSource
@@ -104,7 +104,7 @@ class Admin(commands.Cog):
     @commands.command(hidden=True)
     async def syncrepo(self, ctx: Context):
         try:
-            path = self.bot.config.SRC_PATH + '/rendering/repo/'
+            path = os.path.join(constants.BOT_BASE_FOLDER, '/rendering/repo/')
             for root, dirs, files in os.walk(path):
                 for f in files:
                     os.unlink(os.path.join(root, f))
@@ -115,7 +115,7 @@ class Admin(commands.Cog):
         except:
             await ctx.send(f'```py\n{traceback.format_exc()}```')
         finally:
-            await ctx.message.add_reaction(ctx.tick(True))
+            await ctx.stick(True)
 
     @commands.command(hidden=True)
     async def maintenance(self, ctx: Context):

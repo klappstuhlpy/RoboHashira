@@ -23,7 +23,7 @@ from discord.ext import commands, tasks, menus
 from typing_extensions import Annotated
 
 from cogs.utils.paginator import BasePaginator
-from .utils import formats, timetools
+from .utils import formats, timetools, constants
 
 if TYPE_CHECKING:
     from bot import RoboHashira
@@ -220,7 +220,7 @@ class Stats(commands.Cog):
         return f'[`{short_sha2}`](https://github.com/klappstuhlpy/RoboHashira/commit/{commit.hex}) {short} ({offset})'
 
     def get_last_commits(self, count=4):
-        repo = pygit2.Repository(self.bot.config.SRC_PATH + '/rendering/repo/.git')
+        repo = pygit2.Repository(os.path.join(constants.BOT_BASE_FOLDER, '/rendering/repo/.git'))
         commits = list(itertools.islice(repo.walk(repo.head.target, pygit2.GIT_SORT_TOPOLOGICAL), count))
         return '\n'.join(self.format_commit(c) for c in commits)
 
