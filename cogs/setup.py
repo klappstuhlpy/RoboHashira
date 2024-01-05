@@ -7,7 +7,7 @@ from discord import app_commands
 
 from .config import GuildConfig
 from .utils.context import Context
-from .utils import checks, formats
+from .utils import formats, _commands
 from bot import RoboHashira
 
 
@@ -71,9 +71,13 @@ class Setup(commands.Cog):
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='staff_animated', id=1076911514193231974)
 
-    @commands.hybrid_group(name='dj', description='Manage the DJ Role.')
-    @checks.hybrid_permissions_check(manage_roles=True)
-    @commands.guild_only()
+    @_commands.command(
+        commands.hybrid_group,
+        name='dj',
+        description='Manage the DJ Role.',
+        guild_only=True
+    )
+    @_commands.permissions(user=['manage_roles'])
     async def _dj(self, ctx: Context):
         """Manage the DJ Role.
         The bot and you both need to have the **Manage Roles** permission to use this command.
@@ -81,7 +85,11 @@ class Setup(commands.Cog):
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @_dj.command(name='add', description='Adds the DJ Role with which you have extended control rights to a member.')
+    @_commands.command(
+        _dj.command,
+        name='add',
+        description='Adds the DJ Role with which you have extended control rights to a member.'
+    )
     @app_commands.describe(member='The member you want to add the DJ Role to.')
     async def dj_add(self, ctx: Context, member: discord.Member):
         """Adds the DJ Role with which you have extended control rights to a member."""
@@ -109,8 +117,11 @@ class Setup(commands.Cog):
         await member.add_roles(djRole)
         await ctx.stick(True, f'Added the {djRole.mention} role to user {member}.', ephemeral=True)
 
-    @_dj.command(name='remove',
-                 description='Removes the DJ Role with which you have extended control rights from a member.')
+    @_commands.command(
+        _dj.command,
+        name='remove',
+        description='Removes the DJ Role with which you have extended control rights from a member.'
+    )
     @app_commands.describe(member='The member you want to remove the DJ Role from.')
     async def dj_remove(self, ctx: Context, member: discord.Member):
         """Removes the DJ Role with which you have extended control rights from a member."""
@@ -139,9 +150,14 @@ class Setup(commands.Cog):
 
     # SETUP
 
-    @commands.hybrid_group(name='setup', description='Start the Music configuration setup.', fallback='set')
-    @commands.guild_only()
-    @checks.hybrid_permissions_check(manage_channels=True)
+    @_commands.command(
+        commands.hybrid_group,
+        name='setup',
+        description='Start the Music configuration setup.',
+        fallback='set',
+        guild_only=True
+    )
+    @_commands.permissions(user=['manage_channels'])
     async def setup(self, ctx: Context, channel: Optional[discord.TextChannel] = None):
         """Start the Music configuration setup.
         To use this command the bot and you both need the **Manage Channels** permission.
@@ -168,8 +184,7 @@ class Setup(commands.Cog):
                                      f'ℹ️** | Every Message if not pinned, gets deleted within 60 seconds.**')
 
             await ctx.send(
-                f'<:greenTick:1079249732364406854> Successfully set the new player channel to {channel.mention}.'
-            )
+                f'<:greenTick:1079249732364406854> Successfully set the new player channel to {channel.mention}.')
 
             message = await channel.send(embed=preview_embed(ctx.guild))
             await message.pin()
@@ -178,9 +193,12 @@ class Setup(commands.Cog):
             config: GuildConfig = await self.bot.cfg.get_config(ctx.guild.id)
             await config.edit(music_channel=channel.id, music_message_id=message.id)
 
-    @setup.command(name='reset', description='Reset the Music configuration setup.')
+    @_commands.command(
+        setup.command,
+        name='reset',
+        description='Reset the Music configuration setup.'
+    )
     @commands.guild_only()
-    @checks.hybrid_permissions_check(manage_channels=True)
     async def setup_reset(self, ctx: Context):
         """Reset the Music configuration setup."""
         config: GuildConfig = await self.bot.cfg.get_config(ctx.guild.id)

@@ -7,7 +7,7 @@ from discord import app_commands
 
 from bot import RoboHashira
 from .utils.context import Context
-from .utils import checks, formats
+from .utils import checks, formats, _commands
 from cogs.utils.player import Player
 
 if TYPE_CHECKING:
@@ -25,9 +25,11 @@ class Radio(commands.Cog):
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='\N{RADIO}')
 
-    @commands.hybrid_command(description='Adds a track/playlist to the queue and play the next available track.')
+    @_commands.command(
+        description='Adds a track/playlist to the queue and play the next available track.',
+        guild_only=True
+    )
     @app_commands.describe(source='The Radio Station you want to play from.')
-    @commands.guild_only()
     @checks.is_author_connected()
     @checks.is_listen_together()
     async def radio(self, ctx: Context, source: Literal['Antenne 1 (Germany)', 'I Love Radio', 'JoyHits']):
@@ -66,8 +68,7 @@ class Radio(commands.Cog):
         embed = discord.Embed(
             title=source,
             description=f'{message_prefix} Radio Station: **{source}**',
-            colour=formats.Colour.teal()
-        )
+            colour=formats.Colour.teal())
         await ctx.send(embed=embed, delete_after=15)
 
 

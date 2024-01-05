@@ -16,7 +16,7 @@ from asyncpg import Record
 from discord.ext import commands
 from contextlib import redirect_stdout
 
-from .utils import formats, constants
+from .utils import formats, constants, _commands, context
 from .utils.context import Context
 from bot import RoboHashira
 from .utils.paginator import BasePaginator, TextSource
@@ -101,7 +101,7 @@ class Admin(commands.Cog):
     async def cog_check(self, ctx: Context) -> bool:
         return await self.bot.is_owner(ctx.author)
 
-    @commands.command(hidden=True)
+    @_commands.command(commands.command, hidden=True)
     async def syncrepo(self, ctx: Context):
         try:
             path = os.path.join(constants.BOT_BASE_FOLDER, '/rendering/repo/')
@@ -117,7 +117,7 @@ class Admin(commands.Cog):
         finally:
             await ctx.stick(True)
 
-    @commands.command(hidden=True)
+    @_commands.command(commands.command, hidden=True)
     async def maintenance(self, ctx: Context):
         if self.bot.maintenance.get('maintenance') is True:
             await self.bot.maintenance.put('maintenance', False)
@@ -129,7 +129,7 @@ class Admin(commands.Cog):
             await ctx.send('<:greenTick:1079249732364406854> Maintenance mode enabled.', ephemeral=True)
             await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name='🛠️ Maintenance Mode'))
 
-    @commands.command(hidden=True, name='eval')
+    @_commands.command(commands.command, hidden=True, name='eval')
     async def _eval(self, ctx: Context, *, body: str):
         """Evaluates a code"""
 
@@ -177,11 +177,10 @@ class Admin(commands.Cog):
                 self._last_result = ret
                 await ctx.send(f'```py\n{value}{ret}\n```')
 
-    @commands.command(hidden=True,
+    @_commands.command(commands.command, hidden=True,
                       description='Checks the timing of a command, attempting to suppress HTTP and DB calls.')
     async def perf(self, ctx: Context, *, command: str):
         """Checks the timing of a command, attempting to suppress HTTP and DB calls."""
-
         try:
             msg = copy.copy(ctx.message)
             msg.content = ctx.prefix + command
@@ -208,8 +207,9 @@ class Admin(commands.Cog):
                 end = time.perf_counter()
                 success = True
 
-            await ctx.send(embed=discord.Embed(description=f'Status: {ctx.tick(success)} Time: `{(end - start) * 1000:.2f}ms`',
-                                               color=formats.Colour.teal()))
+            await ctx.send(embed=discord.Embed(
+                description=f'Status: {context.tick(success)} Time: `{(end - start) * 1000:.2f}ms`',
+                color=formats.Colour.teal()))
         except Exception as e:
             traceback.print_exc()
 
@@ -230,7 +230,12 @@ class Admin(commands.Cog):
             fmt = f'```sql\n{render}\n```'
             await ctx.send(fmt)
 
-    @commands.group(hidden=True, invoke_without_command=True, description='Run some SQL.')
+    @_commands.command(
+        commands.group,
+        hidden=True,
+        invoke_without_command=True,
+        description='Run some SQL.'
+    )
     async def sql(self, ctx: Context, *, query: str):
         """Run some SQL."""
         from .utils.formats import TabularData, plural
@@ -250,7 +255,7 @@ class Admin(commands.Cog):
             start = time.perf_counter()
             results = await strategy(query)
             dt = (time.perf_counter() - start) * 1000.0
-        except Exception:
+        except:  # noqa
             return await ctx.send(f'```py\n{traceback.format_exc()}\n```')
 
         rows = len(results)
@@ -268,16 +273,22 @@ class Admin(commands.Cog):
             fp = io.BytesIO(fmt.encode('utf-8'))
             await ctx.send('Too many results...', file=discord.File(fp, 'results.sql'))
         else:
-            fmt = f'```sql\n{render}\n```\n*Returned `{plural(rows):row}` in `{dt:.2f}ms`*'
+            fmt = f'```sql\n{render}\n```\n*Returned {plural(rows):row} in {dt:.2f}ms*'
             await ctx.send(fmt)
 
-    @sql.command(name='schema', hidden=True)
+    @_commands.command(
+        sql.command,
+        name='schema',
+        hidden=True
+    )
     async def sql_schema(self, ctx: Context, *, table_name: str):
         """Runs a query describing the table schema."""
-        query = """SELECT column_name, data_type, column_default, is_nullable
-                   FROM INFORMATION_SCHEMA.COLUMNS
-                   WHERE table_name = $1;
-                """
+        query = """
+                SELECT column_name, data_type, column_default, is_nullable
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE table_name = $1
+                ORDER BY ordinal_position
+            """
 
         results: list[Record] = await ctx.db.fetch(query, table_name)
 
@@ -287,15 +298,20 @@ class Admin(commands.Cog):
 
         await self.send_sql_results(ctx, results)
 
-    @sql.command(name='tables', hidden=True)
+    @_commands.command(
+        sql.command,
+        name='tables',
+        hidden=True
+    )
     async def sql_tables(self, ctx: Context):
         """Lists all SQL tables in the database."""
 
         query = """
-            SELECT table_name
-            FROM information_schema.tables
-            WHERE table_schema='public' AND table_type='BASE TABLE'
-        """
+                SELECT table_name
+                FROM INFORMATION_SCHEMA.TABLES
+                WHERE table_schema='public' AND table_type='BASE TABLE'
+                ORDER BY table_name;
+            """
 
         results: list[Record] = await ctx.db.fetch(query)
 
@@ -305,19 +321,23 @@ class Admin(commands.Cog):
 
         await self.send_sql_results(ctx, results)
 
-    @sql.command(name='sizes', hidden=True)
+    @_commands.command(
+        sql.command,
+        name='sizes',
+        hidden=True
+    )
     async def sql_sizes(self, ctx: Context):
         """Display how much space the database is taking up."""
 
         query = """
-            SELECT nspname || '.' || relname AS "relation",
-                pg_size_pretty(pg_relation_size(C.oid)) AS "size"
-            FROM pg_class C
-            LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
-            WHERE nspname NOT IN ('pg_catalog', 'information_schema')
-            ORDER BY pg_relation_size(C.oid) DESC
-            LIMIT 20;
-        """
+                SELECT nspname || '.' || relname AS "relation",
+                    pg_size_pretty(pg_relation_size(C.oid)) AS "size"
+                FROM pg_class C
+                LEFT JOIN pg_namespace N ON (N.oid = C.relnamespace)
+                WHERE nspname NOT IN ('pg_catalog', 'information_schema')
+                ORDER BY pg_relation_size(C.oid) DESC
+                LIMIT 20;
+            """
 
         results: list[Record] = await ctx.db.fetch(query)
 
@@ -327,7 +347,24 @@ class Admin(commands.Cog):
 
         await self.send_sql_results(ctx, results)
 
-    @commands.command(hidden=True)
+    @_commands.command(sql.command, name='explain', aliases=['analyze'], hidden=True)
+    async def sql_explain(self, ctx: Context, *, query: str):
+        """Explain an SQL query."""
+        query = self.cleanup_code(query)
+        analyze = ctx.invoked_with == 'analyze'
+        if analyze:
+            query = f'EXPLAIN (ANALYZE, COSTS, VERBOSE, BUFFERS, FORMAT JSON)\n{query}'
+        else:
+            query = f'EXPLAIN (COSTS, VERBOSE, FORMAT JSON)\n{query}'
+
+        json = await ctx.db.fetchrow(query)
+        if json is None:
+            return await ctx.stick(False, 'Somehow nothing returned.')
+
+        file = discord.File(io.BytesIO(json[0].encode('utf-8')), filename='explain.json')
+        await ctx.send(file=file)
+
+    @_commands.command(commands.command, hidden=True)
     async def sudo(
             self,
             ctx: Context,
@@ -345,7 +382,7 @@ class Admin(commands.Cog):
         new_ctx = await self.bot.get_context(msg, cls=type(ctx))
         await self.bot.invoke(new_ctx)
 
-    @commands.command(hidden=True)
+    @_commands.command(commands.command, hidden=True)
     async def do(self, ctx: Context, times: int, *, command: str):
         """Repeats a command a specified number of times."""
         msg = copy.copy(ctx.message)
@@ -356,7 +393,7 @@ class Admin(commands.Cog):
         for i in range(times):
             await new_ctx.reinvoke()
 
-    @commands.command(hidden=True)
+    @_commands.command(commands.command, hidden=True)
     async def sh(self, ctx: Context, *, command: str):
         """Runs a shell command."""
         async with ctx.typing():
@@ -378,7 +415,7 @@ class Admin(commands.Cog):
 
         await TextPaginator.start(ctx, entries=source.pages, timeout=60, per_page=1)
 
-    @commands.command(hidden=True)
+    @_commands.command(commands.command, hidden=True)
     async def perf(self, ctx: Context, *, command: str):
         """Checks the timing of a command, attempting to suppress HTTP and DB calls."""
 
@@ -407,7 +444,7 @@ class Admin(commands.Cog):
             end = time.perf_counter()
             success = True
 
-        await ctx.send(f'Status: {ctx.tick(success)} Time: `{(end - start) * 1000:.2f}ms`')
+        await ctx.send(f'Status: {context.tick(success)} Time: `{(end - start) * 1000:.2f}ms`')
 
 
 async def setup(bot: RoboHashira):

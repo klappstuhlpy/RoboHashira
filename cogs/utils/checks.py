@@ -211,41 +211,11 @@ def isDJorAdmin():
     return commands.check(predicate)
 
 
-def isInSameChannel():
-    """Checks if the user is in the same Voice Channel as the Bot."""
-    async def predicate(ctx):
-        if ctx.author.voice is not None:
-            if ctx.voice_client is not None:
-                if ctx.author.voice.channel == ctx.voice_client.channel:
-                    return True
-        await ctx.send(
-            '<:redTick:1079249771975413910> You need to be in the same Voice Channel as the Bot to use this command.',
-            ephemeral=True)
-        return False
-
-    return commands.check(predicate)
-
-
-async def check_permissions(ctx: GuildContext, perms: dict[str, bool], *, check=all):
-    # noinspection PyProtectedMember
-    is_owner = await ctx.bot.is_owner(ctx.author._user)
-    if is_owner:
-        return True
-
-    resolved = ctx.channel.permissions_for(ctx.author)
-    return check(getattr(resolved, name, None) == value for name, value in perms.items())
-
-
-def has_permissions(*, check=all, **perms: bool):
-    async def pred(ctx: GuildContext):
-        return await check_permissions(ctx, perms, check=check)
-
-    return commands.check(pred)
+# Discord Permission Checks
 
 
 async def check_guild_permissions(ctx: GuildContext, perms: dict[str, bool], *, check=all):
-    # noinspection PyProtectedMember
-    is_owner = await ctx.bot.is_owner(ctx.author._user)
+    is_owner = await ctx.bot.is_owner(ctx.author._user)  # noqa
     if is_owner:
         return True
 
@@ -254,13 +224,6 @@ async def check_guild_permissions(ctx: GuildContext, perms: dict[str, bool], *, 
 
     resolved = ctx.author.guild_permissions
     return check(getattr(resolved, name, None) == value for name, value in perms.items())
-
-
-def has_guild_permissions(*, check=all, **perms: bool):
-    async def pred(ctx: GuildContext):
-        return await check_guild_permissions(ctx, perms, check=check)
-
-    return commands.check(pred)
 
 
 def hybrid_permissions_check(**perms: bool) -> Callable[[T], T]:
@@ -275,23 +238,12 @@ def hybrid_permissions_check(**perms: bool) -> Callable[[T], T]:
     return decorator
 
 
-def is_manager():
-    return hybrid_permissions_check(manage_guild=True)
+def guilds_check(*guild_ids: int) -> Callable[[T], T]:
+    async def pred(ctx: GuildContext):
+        return ctx.guild.id in guild_ids
 
+    def decorator(func: T) -> T:
+        commands.check(pred)(func)
+        return func
 
-def is_mod():
-    return hybrid_permissions_check(ban_members=True, manage_messages=True)
-
-
-def is_admin():
-    return hybrid_permissions_check(administrator=True)
-
-
-def is_in_guilds(*guild_ids: int):
-    def predicate(ctx: GuildContext) -> bool:
-        guild = ctx.guild
-        if guild is None:
-            return False
-        return guild.id in guild_ids
-
-    return commands.check(predicate)
+    return decorator

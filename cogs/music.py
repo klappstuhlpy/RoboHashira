@@ -12,7 +12,7 @@ from discord.ext import commands, tasks
 from discord.ext.commands._types import BotT  # noqa
 
 from .utils.context import Context
-from .utils import checks, converters, formats, errors
+from .utils import checks, converters, formats, errors, _commands
 from .utils.render import Render
 from cogs.utils.player import Player, PlayingState, PlayerPanel
 from bot import RoboHashira
@@ -86,8 +86,7 @@ class Music(commands.Cog):
                 wavelink.TrackExceptionEventPayload,
                 wavelink.TrackStuckEventPayload,
                 wavelink.WebsocketClosedEventPayload,
-                wavelink.ExtraEventPayload
-            ]
+                wavelink.ExtraEventPayload]
     ):
         # Handles all wavelink errors
         if isinstance(payload, wavelink.WebsocketClosedEventPayload):
@@ -119,8 +118,7 @@ class Music(commands.Cog):
 
         if player.queue.listen_together.enabled:
             member = await self.bot.get_or_fetch_member(
-                player.guild, player.queue.listen_together.user_id
-            )
+                player.guild, player.queue.listen_together.user_id)
             if (activity := next((a for a in member.activities if isinstance(a, discord.Spotify)), None)) is None:
                 await player.view.update(PlayingState.STOPPED)
                 await player.disconnect()
@@ -212,8 +210,7 @@ class Music(commands.Cog):
             await player.view.channel.send(
                 '<a:loading:1072682806360166430> The Host has paused/stopped listening to Spotify.\n'
                 f'*Destroying the session {formats.format_dt(datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=22), style='R')} if the host doesn\'t start listening again.*',
-                delete_after=21
-            )
+                delete_after=21)
 
             timer = 0
             new_activity = None
@@ -235,8 +232,7 @@ class Music(commands.Cog):
                 except:
                     await player.view.channel.send(
                         '<:redTick:1079249771975413910> I couldn\'t find the track you were listening to on Spotify.',
-                        delete_after=10
-                    )
+                        delete_after=10)
                     return
 
                 await player.queue.put_wait(track)
@@ -271,18 +267,18 @@ class Music(commands.Cog):
         await player.view.fetch_player_channel(ctx.channel)
         return player
 
-    @commands.hybrid_command(description='Adds a track/playlist to the queue and play the next available track.')
+    @_commands.command(
+        description='Adds a track/playlist to the queue and play the next available track.',
+        guild_only=True
+    )
     @app_commands.describe(query='The track/playlist to add to the queue.',
                            source='The type of search to perform.',
                            force='Force the track to be added to the queue.')
-    @commands.guild_only()
     @app_commands.choices(
         source=[
             app_commands.Choice(name='YouTube (Default)', value='yt'),
             app_commands.Choice(name='Spotify', value='sp'),
-            app_commands.Choice(name='SoundCloud', value='sc'),
-        ]
-    )
+            app_commands.Choice(name='SoundCloud', value='sc')])
     @checks.is_author_connected()
     @checks.is_listen_together()
     async def play(self, ctx: Context, *, flags: PlayFlags):
@@ -362,9 +358,13 @@ class Music(commands.Cog):
     listen_together = app_commands.Group(name='listen-together',
                                          description='Listen-together related commands.')
 
-    @listen_together.command(name='start', description='Start a listen-together activity with a user.')
+    @_commands.command(
+        listen_together.command,
+        name='start',
+        description='Start a listen-together activity with a user.',
+        guild_only=True
+    )
     @app_commands.describe(member='The user you want to start a listen-together activity with.')
-    @commands.guild_only()
     @checks.is_author_connected()
     async def listen_together_start(self, interaction: discord.Interaction, member: discord.Member):
         """Start a listen-together activity with a user.
@@ -410,9 +410,12 @@ class Music(commands.Cog):
 
         await player.send_track_add(track, interaction)
 
-    @listen_together.command(name='stop',
-                             description='Stops the current listen-together activity.')
-    @commands.guild_only()
+    @_commands.command(
+        listen_together.command,
+        name='stop',
+        description='Stops the current listen-together activity.',
+        guild_only=True
+    )
     async def listen_together_stop(self, interaction: discord.Interaction):
         """Stops the current listen-together activity."""
         player: Player = cast(Player, interaction.guild.voice_client)
@@ -430,8 +433,7 @@ class Music(commands.Cog):
                 '<:redTick:1079249771975413910> There is currently no listen-together activity started.',
                 ephemeral=True, delete_after=10)
 
-    @commands.hybrid_command(name='connect', description='Connect me to a voice-channel.')
-    @commands.guild_only()
+    @_commands.command(name='connect', description='Connect me to a voice-channel.', guild_only=True)
     @app_commands.describe(channel='The Voice/Stage-Channel you want to connect to.')
     async def connect(self, ctx: Context, channel: Union[discord.VoiceChannel, discord.StageChannel] = None):
         """Connect me to a voice-channel."""
@@ -448,8 +450,7 @@ class Music(commands.Cog):
         await self.join(ctx)
         await ctx.stick(True, f'Connected and bound to {channel.mention}', delete_after=10)
 
-    @commands.hybrid_command(description='Disconnect me from a voice-channel.')
-    @commands.guild_only()
+    @_commands.command(description='Disconnect me from a voice-channel.', guild_only=True)
     @checks.is_author_connected()
     @checks.is_player_connected()
     async def leave(self, ctx: Context):
@@ -462,8 +463,7 @@ class Music(commands.Cog):
         await player.disconnect()
         await ctx.stick(True, 'Disconnected Channel and cleaned up the queue.', delete_after=10)
 
-    @commands.hybrid_command(name='stop', description='Clears the queue and stop the current plugins.')
-    @commands.guild_only()
+    @_commands.command(name='stop', description='Clears the queue and stop the current plugins.', guild_only=True)
     @checks.is_author_connected()
     @checks.is_player_playing()
     async def stop(self, ctx: Context):
@@ -476,8 +476,12 @@ class Music(commands.Cog):
         await player.disconnect()
         await ctx.stick(True, 'Stopped Track and cleaned up queue.', delete_after=10)
 
-    @commands.hybrid_command(name='toggle', aliases=['pause', 'resume'], description='Pause/Resume the current track.')
-    @commands.guild_only()
+    @_commands.command(
+        name='toggle',
+        aliases=['pause', 'resume'],
+        description='Pause/Resume the current track.',
+        guild_only=True
+    )
     @checks.is_author_connected()
     @checks.is_listen_together()
     async def pause_or_resume(self, ctx: Context):
@@ -492,9 +496,8 @@ class Music(commands.Cog):
                         delete_after=10, suppress_embeds=True)
         await player.view.update()
 
-    @commands.hybrid_command(description='Sets a loop mode for the plugins.')
+    @_commands.command(description='Sets a loop mode for the plugins.', guild_only=True)
     @app_commands.describe(mode='Select a loop mode.')
-    @commands.guild_only()
     @checks.is_author_connected()
     @checks.is_player_playing()
     @checks.is_listen_together()
@@ -514,9 +517,8 @@ class Music(commands.Cog):
         await player.view.update()
         await ctx.stick(True, f'Loop Mode changed to `{mode}`', delete_after=10)
 
-    @commands.hybrid_command(description='Sets the shuffle mode for the plugins.')
+    @_commands.command(description='Sets the shuffle mode for the plugins.', guild_only=True)
     @app_commands.describe(mode='Select a shuffle mode.')
-    @commands.guild_only()
     @checks.is_author_connected()
     @checks.is_player_playing()
     @checks.is_listen_together()
@@ -530,9 +532,8 @@ class Music(commands.Cog):
         await player.view.update()
         await ctx.stick(True, f'Shuffle Mode changed to `{mode}`', delete_after=10)
 
-    @commands.hybrid_command(description='Seek to a specific position in the tack.')
+    @_commands.command(description='Seek to a specific position in the tack.', guild_only=True)
     @app_commands.describe(position='The position to seek to. (Format: HH:MM:SS)')
-    @commands.guild_only()
     @checks.is_author_connected()
     @checks.is_player_playing()
     @checks.is_listen_together()
@@ -585,8 +586,7 @@ class Music(commands.Cog):
             value=datetime.datetime.fromtimestamp(int(seconds), datetime.UTC).strftime('%H:%M:%S'))]
         return to_return
 
-    @commands.hybrid_command(description='Set the volume for the plugins.')
-    @commands.guild_only()
+    @_commands.command(description='Set the volume for the plugins.', guild_only=True)
     @app_commands.describe(amount='The volume to set the plugins to. (0-100)')
     @checks.is_author_connected()
     @checks.is_player_playing()
@@ -643,8 +643,7 @@ class Music(commands.Cog):
                         inline=False)
         await ctx.send(embed=embed, delete_after=10)
 
-    @commands.hybrid_command(description='Removes all songs from users that are not in the voice channel.')
-    @commands.guild_only()
+    @_commands.command(description='Removes all songs from users that are not in the voice channel.', guild_only=True)
     @checks.is_author_connected()
     @checks.is_player_playing()
     async def leftcleanup(self, ctx: Context):
@@ -657,14 +656,18 @@ class Music(commands.Cog):
         await player.view.update()
         await ctx.stick(True, 'Cleaned up the queue.', delete_after=10)
 
-    @commands.hybrid_group(description='Manage Advanced Filters to specify you listening experience.')
+    @_commands.command(
+        commands.hybrid_group,
+        description='Manage Advanced Filters to specify you listening experience.',
+        guild_only=True
+    )
     @commands.guild_only()
     async def filter(self, ctx: Context):
         """Find useful information about the filter command group."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @filter.command(name='equalizer', description='Set the equalizer for the current Track.')
+    @_commands.command(filter.command, name='equalizer', description='Set the equalizer for the current Track.')
     @app_commands.describe(band='The Band you want to change. (1-15)',
                            gain='The Gain you want to set. (-0.25-+1.0')
     @checks.is_author_connected()
@@ -710,7 +713,7 @@ class Music(commands.Cog):
         embed.set_footer(text=f'Requested by: {ctx.author}')
         await ctx.send(embed=embed, file=file, delete_after=20)
 
-    @filter.command(name='bassboost', description='Enable/Disable the bassboost filter.')
+    @_commands.command(filter.command, name='bassboost', description='Enable/Disable the bassboost filter.')
     @checks.is_author_connected()
     @checks.is_player_playing()
     async def filter_bassboost(self, ctx: Context):
@@ -743,7 +746,7 @@ class Music(commands.Cog):
         embed.set_footer(text=f'Requested by: {ctx.author}')
         await ctx.send(embed=embed, file=file, delete_after=20)
 
-    @filter.command(name='nightcore', description='Enables/Disables the nightcore filter.')
+    @_commands.command(filter.command, name='nightcore', description='Enables/Disables the nightcore filter.')
     @checks.is_author_connected()
     @checks.is_player_playing()
     async def filter_nightcore(self, ctx: Context):
@@ -760,11 +763,11 @@ class Music(commands.Cog):
                               description='*It may takes a while for the changes to apply.*')
         await ctx.send(embed=embed, delete_after=10)
 
-    @filter.command(name='8d', description='Enable/Disable the 8d filter.')
+    @_commands.command(filter.command, name='8d', description='Enable/Disable the 8d filter.')
     @checks.is_author_connected()
     @checks.is_player_playing()
     async def filter_8d(self, ctx: Context):
-        """Apply a 8D Filter to create a 3D effect."""
+        """Apply an 8D Filter to create a 3D effect."""
         player: Player = cast(Player, ctx.voice_client)
         if not player:
             return
@@ -777,8 +780,11 @@ class Music(commands.Cog):
                               description='*It may takes a while for the changes to apply.*')
         await ctx.send(embed=embed, delete_after=10)
 
-    @filter.command(
-        name='lowpass', description='Suppresses higher frequencies while allowing lower frequencies to pass through.')
+    @_commands.command(
+        filter.command,
+        name='lowpass',
+        description='Suppresses higher frequencies while allowing lower frequencies to pass through.'
+    )
     @app_commands.describe(smoothing='The smoothing of the lowpass filter. (2.5-50.0)')
     @checks.is_author_connected()
     @checks.is_player_playing()
@@ -799,7 +805,7 @@ class Music(commands.Cog):
                         inline=False)
         await ctx.send(embed=embed, delete_after=10)
 
-    @filter.command(name='reset', description='Reset all active filters.')
+    @_commands.command(filter.command, name='reset', description='Reset all active filters.')
     @checks.is_author_connected()
     @checks.is_player_playing()
     async def filter_reset(self, ctx: Context):
@@ -812,8 +818,7 @@ class Music(commands.Cog):
         await player.set_filters()
         await ctx.stick(True, 'Removed all active filters.', delete_after=10)
 
-    @commands.hybrid_command(description='Skip the playing song to the next.')
-    @commands.guild_only()
+    @_commands.command(description='Skip the playing song to the next.', guild_only=True)
     @checks.is_author_connected()
     @checks.is_player_playing()
     @checks.is_listen_together()
@@ -829,9 +834,8 @@ class Music(commands.Cog):
         else:
             await ctx.stick(False, 'The queue is empty.', ephemeral=True, delete_after=10)
 
-    @commands.hybrid_command(name='jump-to', description='Jump to a track in the Queue.')
+    @_commands.command(name='jump-to', description='Jump to a track in the Queue.', guild_only=True)
     @app_commands.describe(position='The index of the track you want to jump to.')
-    @commands.guild_only()
     @checks.is_author_connected()
     @checks.is_player_playing()
     @checks.is_listen_together()
@@ -865,8 +869,7 @@ class Music(commands.Cog):
         else:
             return await ctx.stick(False, 'The queue is empty.', ephemeral=True, delete_after=10)
 
-    @commands.hybrid_command(description='Plays the previous Track.')
-    @commands.guild_only()
+    @_commands.command(description='Plays the previous Track.', guild_only=True)
     @checks.is_author_connected()
     @checks.is_player_playing()
     @checks.is_listen_together()
@@ -893,8 +896,7 @@ class Music(commands.Cog):
                                    'Or you are on the first position.', ephemeral=True)
             return
 
-    @commands.hybrid_command(description='Display the active queue.')
-    @commands.guild_only()
+    @_commands.command(description='Display the active queue.', guild_only=True)
     async def queue(self, ctx: Context):
         """Display the active queue."""
         player: Player = cast(Player, ctx.voice_client)
@@ -940,7 +942,7 @@ class Music(commands.Cog):
 
         await QueuePaginator.start(ctx, entries=player.queue, per_page=30)
 
-    @commands.hybrid_command(description='Search for some lyrics.')
+    @_commands.command(description='Search for some lyrics.')
     @app_commands.describe(song='The song you want to search for.')
     @commands.guild_only()
     async def lyrics(self, ctx: Context, *, song: str = None):

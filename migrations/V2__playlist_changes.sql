@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS playlist (
     created TIMESTAMP DEFAULT (now() AT TIME ZONE 'UTC'::TEXT)
 );
 
-CREATE TABLE IF NOT EXISTS playlist_entries (
+CREATE TABLE IF NOT EXISTS playlist_lookup (
     id SERIAL PRIMARY KEY,
     playlist_id INTEGER REFERENCES playlist (id) ON DELETE CASCADE ON UPDATE NO ACTION,
     name TEXT,

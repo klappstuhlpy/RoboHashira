@@ -23,7 +23,7 @@ from discord.ext import commands, tasks, menus
 from typing_extensions import Annotated
 
 from cogs.utils.paginator import BasePaginator
-from .utils import formats, timetools, constants
+from .utils import formats, timetools, constants, _commands
 
 if TYPE_CHECKING:
     from bot import RoboHashira
@@ -45,6 +45,20 @@ class DataBatchEntry(TypedDict):
     app_command: bool
 
 
+class CommandUsageCount:
+    __slots__ = ('success', 'failed', 'total')
+
+    def __init__(self):
+        self.success = 0
+        self.failed = 0
+        self.total = 0
+
+    def add(self, record: asyncpg.Record):
+        self.success += record['success']
+        self.failed += record['failed']
+        self.total += record['total']
+
+
 class LoggingHandler(logging.Handler):
     def __init__(self, cog: Stats):
         self.cog: Stats = cog
@@ -57,7 +71,7 @@ class LoggingHandler(logging.Handler):
         self.cog.add_record(record)
 
 
-_INVITE_REGEX = re.compile(r'(?:https?:\/\/)?discord(?:\.gg|\.com|app\.com\/invite)?\/[A-Za-z0-9]+')
+_INVITE_REGEX = re.compile(r'(?:https?://)?discord(?:\.gg|\.com|app\.com/invite)?/[A-Za-z0-9]+')
 
 
 def censor_invite(obj: Any, *, _regex=_INVITE_REGEX) -> str:
@@ -783,10 +797,9 @@ class Stats(commands.Cog):
         joined_value = '\n'.join(connection_value)
         embed.add_field(name='Connections', value=f'```py\n{joined_value}\n```', inline=False)
 
-        spam_control = self.bot.spam_control
-        being_spammed = [str(key) for key, value in spam_control._cache.items() if value._tokens == 0]
+        being_spammed = self.bot.spam_control.current_spammers
 
-        description.append(f'Current Spammers: {', '.join(being_spammed) if being_spammed else 'None'}')
+        description.append(f'Current Spammers: {', '.join(str(being_spammed)) if being_spammed else 'None'}')
         description.append(f'Questionable Connections: {questionable_connections}')
 
         total_warnings += questionable_connections
@@ -949,31 +962,23 @@ class Stats(commands.Cog):
         for page in paginator.pages:
             await ctx.send(page)
 
-    async def tabulate_query(self, ctx: Context, query: str, *args: Any):
-        records = await ctx.db.fetch(query, *args)
+    @_commands.command(
+        commands.group,
+        name='command',
+        invoke_without_command=True,
+        hidden=True
+    )
+    @commands.is_owner()
+    async def _cmd(self, ctx: Context):
+        if ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
 
-        if len(records) == 0:
-            return await ctx.send('No results found.')
-
-        headers = list(records[0].keys())
-        table = formats.AnsiTabularData()
-        table.set_columns(headers)
-        table.add_rows(list(r.values()) for r in records)
-        render = table.render()
-
-        if len(render) > 2000:
-            render = re.sub(r'\x1b\[[0-9;]*m', '', render)
-            render = re.sub(r'```\w?.*', '', render, re.RegexFlag.M)
-            fp = io.BytesIO(render.strip().encode('utf-8'))
-            await ctx.send('Too many results...', file=discord.File(fp, 'results.accesslog'))
-        else:
-            await ctx.send(render)
-
-    @commands.group(name='command', invoke_without_command=True, hidden=True)
-    async def _command(self, ctx: Context):
-        ...
-
-    @_command.command(name='stats')
+    @_commands.command(
+        _cmd.command,
+        name='stats',
+        hidden=True,
+        description='Command usage statistics related commands.',
+    )
     @commands.is_owner()
     async def command_stats(self, ctx: Context, *, limit: int = 12):
         """Shows the current command usage statistics.
@@ -1010,101 +1015,148 @@ class Stats(commands.Cog):
 
         await FieldPaginator.start(ctx, entries=[{'name': key, 'value': value} for key, value in common], per_page=12)
 
-    @_command.group(name='history', hidden=True, invoke_without_command=True)
+    async def tabulate_query(self, ctx: Context, query: str, *args: Any):
+        records = await ctx.db.fetch(query, *args)
+
+        if len(records) == 0:
+            return await ctx.send('No results found.')
+
+        headers = list(records[0].keys())
+        table = formats.TabularData()
+        table.set_columns(headers)
+        table.add_rows(list(r.values()) for r in records)
+        render = table.render()
+
+        fp = io.BytesIO(render.strip().encode('utf-8'))
+        await ctx.send('Too many results...', file=discord.File(fp, 'results.sql'))
+
+    @_commands.command(
+        _cmd.group,
+        name='history',
+        hidden=True,
+        invoke_without_command=True,
+        description='Command history related commands.',
+    )
     @commands.is_owner()
-    async def command_history(self, ctx: Context):
+    async def command_history(self, ctx: Context, limit: int = 15):
         """Command history."""
 
         async with ctx.channel.typing():
-            query = """SELECT
-                            CASE failed
-                                WHEN TRUE THEN command || ' [!]'
-                                ELSE command
-                            END AS "command",
-                            to_char(used, 'Mon DD HH12:MI:SS AM') AS "invoked",
-                            author_id,
-                            guild_id
-                       FROM commands
-                       ORDER BY used DESC
-                       LIMIT 15;
-                    """
+            query = f"""
+                SELECT
+                    CASE failed
+                        WHEN TRUE THEN command || ' [!]'
+                        ELSE command
+                    END AS "command",
+                    to_char(used, 'Mon DD HH12:MI:SS AM') AS "invoked",
+                    author_id,
+                    guild_id
+                FROM commands
+                ORDER BY used DESC
+                LIMIT {limit};
+            """
             await self.tabulate_query(ctx, query)
 
-    @command_history.command(name='for')
+    @_commands.command(
+        command_history.command,
+        name='for',
+        hidden=True,
+    )
     @commands.is_owner()
     async def command_history_for(self, ctx: Context, days: Annotated[int, Optional[int]] = 7, *, command: str):
         """Command history for a command."""
 
         async with ctx.channel.typing():
-            query = """SELECT *, t.success + t.failed AS "total"
-                       FROM (
-                           SELECT guild_id,
-                                  SUM(CASE WHEN failed THEN 0 ELSE 1 END) AS "success",
-                                  SUM(CASE WHEN failed THEN 1 ELSE 0 END) AS "failed"
-                           FROM commands
-                           WHERE command=$1
-                           AND used > (CURRENT_TIMESTAMP - $2::interval)
-                           GROUP BY guild_id
-                       ) AS t
-                       ORDER BY 'total' DESC
-                       LIMIT 30;
-                    """
+            query = """
+                SELECT 
+                    *, t.success + t.failed AS "total"
+                FROM (
+                   SELECT guild_id,
+                          SUM(CASE WHEN failed THEN 0 ELSE 1 END) AS "success",
+                          SUM(CASE WHEN failed THEN 1 ELSE 0 END) AS "failed"
+                   FROM commands
+                   WHERE command=$1
+                   AND used > (CURRENT_TIMESTAMP - $2::interval)
+                   GROUP BY guild_id
+                ) AS t
+                ORDER BY 'total' DESC
+                LIMIT 30;
+            """
 
             await self.tabulate_query(ctx, query, command, datetime.timedelta(days=days))
 
-    @command_history.command(name='guild', aliases=['server'])
+    @_commands.command(
+        command_history.command,
+        name='guild',
+        hidden=True,
+        aliases=['server'],
+    )
     @commands.is_owner()
     async def command_history_guild(self, ctx: Context, guild_id: int):
         """Command history for a guild."""
 
         async with ctx.channel.typing():
-            query = """SELECT
-                            CASE failed
-                                WHEN TRUE THEN command || ' [!]'
-                                ELSE command
-                            END AS "command",
-                            channel_id,
-                            author_id,
-                            used
-                       FROM commands
-                       WHERE guild_id=$1
-                       ORDER BY used DESC
-                       LIMIT 15;
-                    """
+            query = """
+                SELECT
+                    CASE failed
+                        WHEN TRUE THEN command || ' [!]'
+                        ELSE command
+                    END AS "command",
+                    channel_id,
+                    author_id,
+                    used
+                FROM commands
+                WHERE guild_id=$1
+                ORDER BY used DESC
+                LIMIT 15;
+            """
             await self.tabulate_query(ctx, query, guild_id)
 
-    @command_history.command(name='user', aliases=['member'])
+    @_commands.command(
+        command_history.command,
+        name='user',
+        hidden=True,
+        aliases=['member'],
+    )
     @commands.is_owner()
     async def command_history_user(self, ctx: Context, user_id: int):
         """Command history for a user."""
 
         async with ctx.channel.typing():
-            query = """SELECT
-                            CASE failed
-                                WHEN TRUE THEN command || ' [!]'
-                                ELSE command
-                            END AS "command",
-                            guild_id,
-                            used
-                       FROM commands
-                       WHERE author_id=$1
-                       ORDER BY used DESC
-                       LIMIT 20;
-                    """
+            query = """
+                SELECT
+                    CASE failed
+                        WHEN TRUE THEN command || ' [!]'
+                        ELSE command
+                    END AS "command",
+                    guild_id,
+                    used
+                FROM commands
+                WHERE author_id=$1
+                ORDER BY used DESC
+                LIMIT 20;
+            """
             await self.tabulate_query(ctx, query, user_id)
 
-    @command_history.command(name='log')
+    @_commands.command(
+        command_history.command,
+        name='log',
+        hidden=True,
+    )
     @commands.is_owner()
     async def command_history_log(self, ctx: Context, days: int = 7):
         """Command history log for the last N days."""
 
         async with ctx.channel.typing():
-            query = """SELECT command, COUNT(*)
-                       FROM commands
-                       WHERE used > (CURRENT_TIMESTAMP - $1::interval)
-                       GROUP BY command
-                       ORDER BY 2 DESC
-                    """
+            query = """
+                SELECT 
+                    command, 
+                    COUNT(*)
+                FROM commands
+                WHERE used > (CURRENT_TIMESTAMP - $1::interval)
+                GROUP BY command
+                ORDER BY 2 DESC
+            """
 
             all_commands = {c.qualified_name: 0 for c in self.bot.walk_commands()}
 
@@ -1133,9 +1185,14 @@ class Stats(commands.Cog):
 
             embed.add_field(name='Unused', value=unused, inline=False)
 
-            await ctx.send(embed=embed, file=discord.File(io.BytesIO(render.encode()), filename='full_results.txt'))
+            await ctx.send(embed=embed,
+                           file=discord.File(io.BytesIO(render.encode()), filename='full_results.accesslog'))
 
-    @command_history.command(name='cog')
+    @_commands.command(
+        command_history.command,
+        name='cog',
+        hidden=True,
+    )
     @commands.is_owner()
     async def command_history_cog(self, ctx: Context, days: Annotated[int, Optional[int]] = 7, *, cog_name: str = None):
         """Command history for a cog or grouped by a cog."""
@@ -1147,54 +1204,46 @@ class Stats(commands.Cog):
                 if cog is None:
                     return await ctx.send(f'Unknown cog: {cog_name}')
 
-                query = """SELECT *, t.success + t.failed AS "total"
-                           FROM (
-                               SELECT command,
-                                      SUM(CASE WHEN failed THEN 0 ELSE 1 END) AS "success",
-                                      SUM(CASE WHEN failed THEN 1 ELSE 0 END) AS "failed"
-                               FROM commands
-                               WHERE command = any($1::text[])
-                               AND used > (CURRENT_TIMESTAMP - $2::interval)
-                               GROUP BY command
-                           ) AS t
-                           ORDER BY 'total' DESC
-                           LIMIT 30;
-                        """
+                query = """
+                    SELECT 
+                        *, 
+                        t.success + t.failed AS "total"
+                    FROM (
+                       SELECT command,
+                              SUM(CASE WHEN failed THEN 0 ELSE 1 END) AS "success",
+                              SUM(CASE WHEN failed THEN 1 ELSE 0 END) AS "failed"
+                       FROM commands
+                       WHERE command = any($1::text[])
+                       AND used > (CURRENT_TIMESTAMP - $2::interval)
+                       GROUP BY command
+                    ) AS t
+                    ORDER BY 'total' DESC
+                    LIMIT 30;
+                """
                 return await self.tabulate_query(ctx, query, [c.qualified_name for c in cog.walk_commands()], interval)
 
-            # A more manual query with a manual grouper.
-            query = """SELECT *, t.success + t.failed AS "total"
-                       FROM (
-                           SELECT command,
-                                  SUM(CASE WHEN failed THEN 0 ELSE 1 END) AS "success",
-                                  SUM(CASE WHEN failed THEN 1 ELSE 0 END) AS "failed"
-                           FROM commands
-                           WHERE used > (CURRENT_TIMESTAMP - $1::interval)
-                           GROUP BY command
-                       ) AS t;
-                    """
+            query = """
+                SELECT 
+                    *, 
+                    t.success + t.failed AS "total"
+                FROM (
+                   SELECT command,
+                          SUM(CASE WHEN failed THEN 0 ELSE 1 END) AS "success",
+                          SUM(CASE WHEN failed THEN 1 ELSE 0 END) AS "failed"
+                   FROM commands
+                   WHERE used > (CURRENT_TIMESTAMP - $1::interval)
+                   GROUP BY command
+                ) AS t;
+            """
 
-            class Count:
-                __slots__ = ('success', 'failed', 'total')
-
-                def __init__(self):
-                    self.success = 0
-                    self.failed = 0
-                    self.total = 0
-
-                def add(self, record):
-                    self.success += record['success']
-                    self.failed += record['failed']
-                    self.total += record['total']
-
-            data = defaultdict(Count)
+            data = defaultdict(CommandUsageCount)
             records = await ctx.db.fetch(query, interval)
             for record in records:
                 command = self.bot.get_command(record['command'])
                 if command is None or command.cog is None:
                     data['No Cog'].add(record)
                 else:
-                    data[command.cog.qualified_name].add(record)
+                    data[command.cog.qualified_name].add(record)  # type: ignore
 
             table = formats.TabularData()
             table.set_columns(['Cog', 'Success', 'Failed', 'Total'])
@@ -1244,7 +1293,6 @@ async def on_app_command_error(interaction: discord.Interaction, error: discord.
     e = discord.Embed(title='App Command Error', colour=0xCC3366)
 
     if command is not None:
-        # noinspection PyProtectedMember
         if command._has_any_error_handlers():
             return
 

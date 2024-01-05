@@ -7,8 +7,9 @@ from discord.ext import commands
 
 from bot import RoboHashira
 from .config import GuildConfig, TempChannel, ModifyType
+from .utils._commands import PermissionTemplate
 from .utils.context import Context
-from .utils import checks, fuzzy
+from .utils import checks, fuzzy, _commands
 from .utils.formats import plural
 
 
@@ -32,19 +33,22 @@ class TempChannels(commands.Cog):
         results = fuzzy.finder(current, channels, key=lambda t: t.name)
         return [app_commands.Choice(value=str(result.id), name=result.name) for result in results][:25]
 
-    @commands.hybrid_group(name='temp', description='Manage Temp Channels.')
-    @checks.hybrid_permissions_check(manage_channels=True)
-    @commands.guild_only()
+    @_commands.command(
+        commands.hybrid_group,
+        name='temp',
+        description='Manage Temp Channels.',
+        guild_only=True
+    )
+    @_commands.permissions(user=['manage_channels'])
     async def _temp(self, ctx: Context):
-        """Get overview of the Use of the TempChannels.
-        In order to manage Temp Channels, (you and) the bot must have the following permissions:
+        """Get an overview of the Use of the TempChannels.
+        To manage Temp Channels, (you and) the bot must have the following permissions:
         - **Manage Channels**
         - **Move Members**"""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @_temp.command(name='list', description='List of current temporary channels.')
-    @checks.hybrid_permissions_check(manage_channels=True)
+    @_commands.command(_temp.command, name='list', description='List of current temporary channels.')
     async def temp_list(self, ctx: Context):
         """List of current temporary channels."""
         config: GuildConfig = await self.bot.cfg.get_config(ctx.guild.id)
@@ -61,11 +65,11 @@ class TempChannels(commands.Cog):
         embed.set_footer(text=f'{plural(len(config.temp_channels)):channel}')
         await ctx.send(embed=embed)
 
-    @_temp.command(name='add', description='Sets the channel where to create a temporary channel.')
+    @_commands.command(_temp.command, name='add', description='Sets the channel where to create a temporary channel.')
     @app_commands.rename(_format='format')
-    @app_commands.describe(channel='Enter a voice-channel.',
-                           _format='Set the temp channel format. (Default: ⏳ | %username : %username -> replaced with name of User.)')
-    @checks.hybrid_permissions_check(manage_channels=True)
+    @app_commands.describe(
+        channel='Enter a voice-channel.',
+        _format='Set the temp channel format. (Default: ⏳ | %username : %username -> replaced with name of User.)')
     async def temp_add(self, ctx: Context, channel: discord.VoiceChannel, _format: Optional[str] = '⏳ | %username'):
         """Sets the channel where to create a temporary channel."""
         config: GuildConfig = await self.bot.cfg.get_config(ctx.guild.id)
@@ -78,11 +82,11 @@ class TempChannels(commands.Cog):
         await ctx.send(
             f'<:greenTick:1079249732364406854> Successfully added {channel.mention} with format **`{_format}`**.')
 
-    @_temp.command(name='edit', description='Edit the format of a active Temp Channel.')
+    @_commands.command(_temp.command, name='edit', description='Edit the format of a active Temp Channel.')
     @app_commands.rename(_format='format')
-    @app_commands.describe(channel_id='Enter a Voice Hub ID.',
-                           _format='Set the temp channel format. (Default: ⏳ | %username : %username -> replaced with name of User.)')
-    @checks.hybrid_permissions_check(manage_channels=True)
+    @app_commands.describe(
+        channel_id='Enter a Voice Hub ID.',
+        _format='Set the temp channel format. (Default: ⏳ | %username : %username -> replaced with name of User.)')
     @app_commands.autocomplete(channel_id=temp_channel_id_autocomplete)  # type: ignore
     async def temp_edit(self, ctx: Context, channel_id: str, _format: Optional[str] = '⏳ | %username'):
         """Edit the format of an active Temp Channel."""
@@ -106,12 +110,10 @@ class TempChannels(commands.Cog):
 
         await config.edit(temp_channels=[(TempChannel(channel_id, _format), ModifyType.EDIT)])
         await ctx.send(
-            f'<:greenTick:1079249732364406854> Successfully edited <#{channel.id}> with format **`{_format}`**.'
-        )
+            f'<:greenTick:1079249732364406854> Successfully edited <#{channel.id}> with format **`{_format}`**.')
 
-    @_temp.command(name='remove', description='Remove a existing temp channel.')
+    @_commands.command(_temp.command, name='remove', description='Remove a existing temp channel.')
     @app_commands.describe(channel_id='Enter a Voice Hub ID.')
-    @checks.hybrid_permissions_check(manage_channels=True)
     @app_commands.autocomplete(channel_id=temp_channel_id_autocomplete)  # type: ignore
     async def temp_remove(self, ctx: Context, channel_id: str):
         """Remove an existing temp channel."""
@@ -156,8 +158,7 @@ class TempChannels(commands.Cog):
                     channel = await member.guild.create_voice_channel(
                         name=f'{temp:{member.display_name}}',
                         category=after.channel.category,
-                        reason=f'Temporary Voice Hub for {member.display_name} ({member.id})'
-                    )
+                        reason=f'Temporary Voice Hub for {member.display_name} ({member.id})')
                     ow = discord.PermissionOverwrite(manage_channels=True, manage_roles=True, move_members=True)
                     await channel.set_permissions(member, overwrite=ow)
 
@@ -167,12 +168,10 @@ class TempChannels(commands.Cog):
                     if exc.code == 50013:
                         await member.guild.system_channel.send(
                             f'<:warning:1076913452775383080> {member.mention} I don\'t have the permissions to create or '
-                            f'manage a temporary channel in **{after.channel.category}**.'
-                        )
+                            f'manage a temporary channel in **{after.channel.category}**.')
                     else:
                         await member.guild.system_channel.send(
-                            f'<:warning:1076913452775383080> {member.mention} An error occurred while creating a temporary channel.'
-                        )
+                            f'<:warning:1076913452775383080> {member.mention} An error occurred while creating a temporary channel.')
 
 
 async def setup(bot: RoboHashira):

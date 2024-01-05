@@ -11,7 +11,7 @@ from wavelink import Playable
 
 from .music import Music
 from .utils.context import Context
-from .utils import checks, cache, fuzzy, formats
+from .utils import checks, cache, fuzzy, formats, _commands
 from bot import RoboHashira
 from .utils.formats import plural, get_shortened_string
 from cogs.utils.player import Player
@@ -26,9 +26,7 @@ class PlaylistSelect(discord.ui.Select):
                 label='Start Page',
                 emoji=discord.PartialEmoji(name='vegaleftarrow', id=1066024601332748389),
                 value='__index',
-                description='The front page of the Todo Menu.',
-            )
-        ]
+                description='The front page of the Todo Menu.')]
         options.extend([playlist.to_select_option(i) for i, playlist in enumerate(playlists)])
         super().__init__(placeholder=f'Select a playlist ({len(playlists)} playlists found)',
                          options=options)
@@ -167,8 +165,7 @@ class Playlist:
             label=self.name,
             emoji='\N{MULTIPLE MUSICAL NOTES}',
             value=str(value),
-            description=f'{len(self.tracks)} Tracks'
-        )
+            description=f'{len(self.tracks)} Tracks')
 
     async def delete(self) -> None:
         query = "DELETE FROM playlist WHERE id = $1;"
@@ -224,8 +221,7 @@ class PlaylistTools(commands.Cog):
 
         record = await self.bot.pool.fetchval(
             "INSERT INTO playlist (user_id, name, created) VALUES ($1, $2, $3) RETURNING id;",
-            user.id, 'Liked Songs', discord.utils.utcnow()
-        )
+            user.id, 'Liked Songs', discord.utils.utcnow())
         self.get_playlists.invalidate(self, user.id)
         return record
 
@@ -242,8 +238,7 @@ class PlaylistTools(commands.Cog):
 
         return [
             app_commands.Choice(name=get_shortened_string(length, start, playlist.choice_text), value=playlist.id)
-            for length, start, playlist in results[:20]
-        ]
+            for length, start, playlist in results[:20]]
 
     async def get_playlist(self, playlist_id: int, pass_tracks: bool = False) -> Optional[Playlist]:
         """Gets a poll by ID."""
@@ -274,13 +269,17 @@ class PlaylistTools(commands.Cog):
             playlist.tracks = [PlaylistTrack(record) for record in records]
         return playlists
 
-    @commands.hybrid_group(name='playlist', description='Manage your playlist.')
+    @_commands.command(
+        commands.hybrid_group,
+        name='playlist',
+        description='Manage your playlist.'
+    )
     async def playlist(self, ctx: Context):
         """Manage your playlist."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @playlist.command(name='list', description='Display all your playlists and tracks.')
+    @_commands.command(playlist.command, name='list', description='Display all your playlists and tracks.')
     async def playlist_list(self, ctx: Context):
         """Display all your playlists and tracks."""
         playlists = await self.get_playlists(ctx.author.id)
@@ -311,7 +310,7 @@ class PlaylistTools(commands.Cog):
         PlaylistPaginator.start_pages = embeds
         await PlaylistPaginator.start(ctx, entries=embeds, per_page=1, ephemeral=True)
 
-    @playlist.command(name='create', description='Create a new playlist.')
+    @_commands.command(playlist.command, name='create', description='Create a new playlist.')
     @app_commands.describe(name='The name of your new playlist.')
     async def playlist_create(self, ctx: Context, name: str):
         """Create a new playlist."""
@@ -335,11 +334,14 @@ class PlaylistTools(commands.Cog):
         await ctx.stick(True, f'Successfully created playlist **{name}** [`{record}`].',
                         ephemeral=True)
 
-    @playlist.command(name='play',
-                      description='Add the songs from you playlist to the plugins queue and play them.')
+    @_commands.command(
+        playlist.command,
+        name='play',
+        description='Add the songs from you playlist to the plugins queue and play them.',
+        guild_only=True
+    )
     @app_commands.describe(playlist_id='The ID of your playlist to play.')
     @app_commands.autocomplete(playlist_id=playlist_id_autocomplete)  # type: ignore
-    @commands.guild_only()
     @checks.is_listen_together()
     @checks.is_author_connected()
     async def playlist_play(self, ctx: Context, playlist_id: int):
@@ -392,8 +394,11 @@ class PlaylistTools(commands.Cog):
         else:
             await player.view.update()
 
-    @playlist.command(name='add',
-                      description='Adds the current playing track or a track via a direct-url to your playlist.')
+    @_commands.command(
+        playlist.command,
+        name='add',
+        description='Adds the current playing track or a track via a direct-url to your playlist.'
+    )
     @app_commands.describe(query='The direct-url of the track/playlist/album you want to add to your playlist.',
                            playlist_id='The ID of your playlist.')
     @app_commands.autocomplete(playlist_id=playlist_id_autocomplete)  # type: ignore
@@ -480,7 +485,11 @@ class PlaylistTools(commands.Cog):
 
         self.get_playlists.invalidate(self, ctx.author.id)
 
-    @playlist.command(name='delete', description='Delete a playlist.')
+    @_commands.command(
+        playlist.command,
+        name='delete',
+        description='Delete a playlist.'
+    )
     @app_commands.describe(playlist_id='The ID of the playlist you want to delete.')
     @app_commands.autocomplete(playlist_id=playlist_id_autocomplete)  # type: ignore
     async def playlist_delete(self, ctx: Context, playlist_id: int):
@@ -497,7 +506,11 @@ class PlaylistTools(commands.Cog):
                         ephemeral=True)
         self.get_playlists.invalidate(self, ctx.author.id)
 
-    @playlist.command(name='clear', description='Clear all Items in a playlist.')
+    @_commands.command(
+        playlist.command,
+        name='clear',
+        description='Clear all Items in a playlist.'
+    )
     @app_commands.describe(playlist_id='The ID of the playlist you want to delete.')
     @app_commands.autocomplete(playlist_id=playlist_id_autocomplete)  # type: ignore
     async def playlist_clear(self, ctx: Context, playlist_id: int):
@@ -514,7 +527,11 @@ class PlaylistTools(commands.Cog):
                         ephemeral=True)
         self.get_playlists.invalidate(self, ctx.author.id)
 
-    @playlist.command(name='remove', description='Remove a track from your playlist.')
+    @_commands.command(
+        playlist.command,
+        name='remove',
+        description='Remove a track from your playlist.'
+    )
     @app_commands.describe(playlist_id='The playlist ID you want to remove a track from.',
                            track_id='The ID of the track to remove.')
     @app_commands.autocomplete(playlist_id=playlist_id_autocomplete)  # type: ignore

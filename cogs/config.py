@@ -5,13 +5,14 @@ import yarl
 from discord.ext import commands
 from discord.utils import MISSING
 
-from .utils import checks, cache, formats
+from .utils import cache, formats, _commands
 
 from collections import defaultdict
 from typing import TYPE_CHECKING, AsyncIterator, Iterable, Optional, Union, List, Self, NamedTuple, Any
 import asyncpg
 import discord
 
+from .utils._commands import PermissionTemplate
 from .utils.converters import aenumerate
 from .utils.formats import plural
 from cogs.utils.paginator import BasePaginator
@@ -279,9 +280,8 @@ class Config(commands.Cog):
         return not is_plonked
 
     @cache.cache()
-    async def get_command_permissions(
-        self, guild_id: int, *, connection: Optional[Connection | Pool] = None
-    ) -> ResolvedCommandPermissions:
+    async def get_permissions(
+            self, guild_id: int, *, connection: Optional[Connection | Pool] = None) -> ResolvedCommandPermissions:
         connection = connection or self.bot.pool
         query = 'SELECT name, channel_id, whitelist FROM command_config WHERE guild_id=$1;'
 
@@ -296,7 +296,7 @@ class Config(commands.Cog):
         if is_owner:
             return True
 
-        resolved = await self.get_command_permissions(ctx.guild.id)
+        resolved = await self.get_permissions(ctx.guild.id)
         return not resolved.is_blocked(ctx)
 
     async def _bulk_ignore_entries(self, ctx: GuildContext, entries: Iterable[discord.abc.Snowflake]) -> None:
@@ -313,10 +313,6 @@ class Config(commands.Cog):
 
                 self.is_plonked.invalidate_containing(f'{ctx.guild.id!r}:')
 
-    async def cog_command_error(self, ctx: Context, error: commands.CommandError):
-        if isinstance(error, commands.BadArgument):
-            await ctx.send(str(error))
-
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
         if channel is None:
@@ -330,14 +326,18 @@ class Config(commands.Cog):
         if channel and channel.id == config.music_channel:
             return await config.edit(music_channel=None, music_message_id=None)
 
-    @commands.group()
+    @_commands.command(commands.group)
+    @_commands.permissions(user=PermissionTemplate.mod)
     async def config(self, ctx: Context):
         """Handles the server or channel permission configuration for the bot."""
         if ctx.invoked_subcommand is None:
             await ctx.send_help('rendering')
 
-    @config.group(invoke_without_command=True, aliases=['plonk'])
-    @checks.is_mod()
+    @_commands.command(
+        config.group,
+        invoke_without_command=True,
+        aliases=['plonk']
+    )
     async def ignore(self, ctx: GuildContext, *entities: Union[discord.TextChannel, discord.Member, discord.VoiceChannel]):
         """Ignores text channels or members from using the bot.
         If no channel or member is specified, the current channel is ignored.
@@ -357,8 +357,7 @@ class Config(commands.Cog):
 
         await ctx.stick(True)
 
-    @ignore.command(name='list')
-    @checks.is_mod()
+    @_commands.command(ignore.command, name='list')
     @commands.cooldown(2, 60.0, commands.BucketType.guild)
     async def ignore_list(self, ctx: GuildContext):
         """Tells you what channels or members are currently ignored in this server.
@@ -389,8 +388,7 @@ class Config(commands.Cog):
 
         await PlonkedPaginator.start(ctx, entries=records, per_page=15)
 
-    @ignore.command(name='all')
-    @checks.is_mod()
+    @_commands.command(ignore.command, name='all')
     async def _all(self, ctx: GuildContext):
         """Ignores every channel in the server from being processed.
         This works by adding every channel that the server currently has into
@@ -401,11 +399,10 @@ class Config(commands.Cog):
         await self._bulk_ignore_entries(ctx, ctx.guild.text_channels)
         await ctx.send('<:greenTick:1079249732364406854> Successfully blocking all channels here.')
 
-    @ignore.command(name='clear')
-    @checks.is_mod()
+    @_commands.command(ignore.command, name='clear')
     async def ignore_clear(self, ctx: GuildContext):
-        """Clears all the currently set ignores.
-        To use this command you must have Ban Members and Manage Messages permissions.
+        """Clears all the current set ignores.
+        To use this command, you must have Ban Members and Manage Messages permissions.
         """
 
         query = 'DELETE FROM plonks WHERE guild_id=$1;'
@@ -413,8 +410,7 @@ class Config(commands.Cog):
         self.is_plonked.invalidate_containing(f'{ctx.guild.id!r}:')
         await ctx.send('<:greenTick:1079249732364406854> Successfully cleared all ignores.')
 
-    @config.group(pass_context=True, invoke_without_command=True, aliases=['unplonk'])
-    @checks.is_mod()
+    @_commands.command(config.group, pass_context=True, invoke_without_command=True, aliases=['unplonk'])
     async def unignore(self, ctx: GuildContext, *entities: Union[discord.TextChannel, discord.Member, discord.VoiceChannel]):
         """Allows channels or members to use the bot again.
         If nothing is specified, it unignores the current channel.
@@ -432,20 +428,17 @@ class Config(commands.Cog):
         self.is_plonked.invalidate_containing(f'{ctx.guild.id!r}:')
         await ctx.stick(True)
 
-    @unignore.command(name='all')
-    @checks.is_mod()
+    @_commands.command(unignore.command, name='all')
     async def unignore_all(self, ctx: GuildContext):
         """An alias for ignore clear command."""
         await ctx.invoke(self.ignore_clear)  # type: ignore
 
-    @config.group(aliases=['guild'])
-    @checks.is_mod()
+    @_commands.command(config.group, aliases=['guild'])
     async def server(self, ctx: GuildContext):
         """Handles the server-specific permissions."""
         pass
 
-    @config.group()
-    @checks.is_mod()
+    @_commands.command(config.group)
     async def channel(self, ctx: GuildContext):
         """Handles the channel-specific permissions."""
         pass
@@ -460,7 +453,7 @@ class Config(commands.Cog):
         whitelist: bool = True,
     ) -> None:
         # clear the cache
-        self.get_command_permissions.invalidate(self, guild_id)
+        self.get_permissions.invalidate(self, guild_id)
 
         if channel_id is None:
             subcheck = 'channel_id IS NULL'
@@ -483,7 +476,7 @@ class Config(commands.Cog):
                     msg = '<:redTick:1079249771975413910> This command is already disabled.' if not whitelist else 'This command is already explicitly enabled.'
                     raise RuntimeError(msg)
 
-    @channel.command(name='disable')
+    @_commands.command(channel.command, name='disable')
     async def channel_disable(self, ctx: GuildContext, *, command: CommandName):
         """Disables a command for this channel."""
 
@@ -494,7 +487,7 @@ class Config(commands.Cog):
         else:
             await ctx.send('<:greenTick:1079249732364406854> Command successfully disabled for this channel.')
 
-    @channel.command(name='enable')
+    @_commands.command(channel.command, name='enable')
     async def channel_enable(self, ctx: GuildContext, *, command: CommandName):
         """Enables a command for this channel."""
 
@@ -505,7 +498,7 @@ class Config(commands.Cog):
         else:
             await ctx.send('<:greenTick:1079249732364406854> Command successfully enabled for this channel.')
 
-    @server.command(name='disable')
+    @_commands.command(server.command, name='disable')
     async def server_disable(self, ctx: GuildContext, *, command: CommandName):
         """Disables a command for this server."""
 
@@ -516,7 +509,7 @@ class Config(commands.Cog):
         else:
             await ctx.send('<:greenTick:1079249732364406854> Command successfully disabled for this server')
 
-    @server.command(name='enable')
+    @_commands.command(server.command, name='enable')
     async def server_enable(self, ctx: GuildContext, *, command: CommandName):
         """Enables a command for this server."""
 
@@ -527,8 +520,7 @@ class Config(commands.Cog):
         else:
             await ctx.send('<:greenTick:1079249732364406854>Command successfully enabled for this server.')
 
-    @config.command(name='enable')
-    @checks.is_mod()
+    @_commands.command(config.command, name='enable')
     async def config_enable(self, ctx: GuildContext, channel: Optional[discord.TextChannel], *, command: CommandName):
         """Enables a command the server or a channel."""
 
@@ -541,8 +533,7 @@ class Config(commands.Cog):
         else:
             await ctx.send(f'<:greenTick:1079249732364406854> Command successfully enabled for {human_friendly}.')
 
-    @config.command(name='disable')
-    @checks.is_mod()
+    @_commands.command(config.command, name='disable')
     async def config_disable(self, ctx: GuildContext, channel: Optional[discord.TextChannel], *, command: CommandName):
         """Disables a command for the server or a channel."""
 
@@ -555,11 +546,9 @@ class Config(commands.Cog):
         else:
             await ctx.send(f'<:greenTick:1079249732364406854> Command successfully disabled for {human_friendly}.')
 
-    @config.command(name='disabled')
-    @checks.is_mod()
+    @_commands.command(config.command, name='disabled')
     async def config_disabled(
-        self, ctx: GuildContext, *, channel: Optional[Union[discord.TextChannel, discord.VoiceChannel]] = None
-    ):
+            self, ctx: GuildContext, *, channel: Optional[Union[discord.TextChannel, discord.VoiceChannel]] = None):
         """Shows the disabled commands for the channel given."""
 
         channel_id: int
@@ -571,7 +560,7 @@ class Config(commands.Cog):
         else:
             channel_id = channel.id
 
-        resolved = await self.get_command_permissions(ctx.guild.id)
+        resolved = await self.get_permissions(ctx.guild.id)
         disabled = list(resolved.get_blocked_commands(channel_id))
 
         if not disabled:
@@ -590,25 +579,25 @@ class Config(commands.Cog):
 
         await EmbedPaginator.start(ctx, entries=disabled, per_page=15)
 
-    @config.group(name='global')
+    @_commands.command(config.group, name='global')
     @commands.is_owner()
     async def _global(self, ctx: GuildContext):
         """Handles global bot configuration."""
         pass
 
-    @_global.command(name='block')
+    @_commands.command(_global.command, name='block')
     async def global_block(self, ctx: GuildContext, object_id: int):
         """Blocks a user or guild globally."""
         await self.bot.add_to_blacklist(object_id)
         await ctx.stick(True)
 
-    @_global.command(name='unblock')
+    @_commands.command(_global.command, name='unblock')
     async def global_unblock(self, ctx: GuildContext, object_id: int):
         """Unblocks a user or guild globally."""
         await self.bot.remove_from_blacklist(object_id)
         await ctx.stick(True)
 
-    @_global.command(name='track')
+    @_commands.command(_global.command, name='track')
     async def global_track(self, ctx: GuildContext, *, object_url: str):
         """Tracks a user or guild globally."""
 
