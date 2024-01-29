@@ -2,7 +2,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-from typing import Literal, Optional, Union, List, cast
+from typing import Literal, Optional, Union, List, cast, TYPE_CHECKING
 import datetime
 import discord
 import wavelink
@@ -17,6 +17,9 @@ from .utils.render import Render
 from cogs.utils.player import Player, PlayingState, PlayerPanel
 from bot import RoboHashira
 from cogs.utils.paginator import BasePaginator
+
+if TYPE_CHECKING:
+    from .playlist import PlaylistTools
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +46,7 @@ class Music(commands.Cog):
         return True
 
     async def cog_before_invoke(self, ctx: Context[BotT]) -> None:
-        playlist_tools = self.bot.get_cog('PlaylistTools')
+        playlist_tools: PlaylistTools = self.bot.get_cog('PlaylistTools')  # type: ignore
         await playlist_tools.initizalize_user(ctx.author)  # noqa
 
     async def cog_load(self) -> None:

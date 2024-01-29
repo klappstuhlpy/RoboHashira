@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS playlist (
     id SERIAL PRIMARY KEY,
     name TEXT,
     user_id BIGINT,
-    created TIMESTAMP DEFAULT (now() AT TIME ZONE 'UTC'::TEXT)
+    created TIMESTAMP WITH TIME ZONE
 );
 
 CREATE TABLE IF NOT EXISTS playlist_lookup (

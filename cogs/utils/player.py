@@ -116,7 +116,9 @@ class Player(wavelink.Player):
                 if return_first and isinstance(results, list):
                     results = results[0]
                 else:
-                    results = await TrackDisambiguatorView.start(ctx, tracks=results.tracks) if ctx else results
+                    results = await TrackDisambiguatorView.start(
+                        ctx, tracks=results.tracks if isinstance(results, wavelink.Playlist) else results
+                    ) if ctx else results
             else:
                 results = await wavelink.Playable.search(query)
         except Exception as exc:
@@ -143,7 +145,7 @@ class Player(wavelink.Player):
 
     async def send_track_add(
             self, track: wavelink.Playable, obj: Optional[Context | discord.Interaction] = None
-    ) -> Message:
+    ) -> Message | None | Any:
         embed = discord.Embed(
             title='Track Enqueued',
             description=f'`🎶` Added [{track.title}]({track.uri}) to the queue.\n'
@@ -319,36 +321,41 @@ class PlayerPanel(discord.ui.View, Generic[T]):
             if hasattr(button, 'emoji') and emoji is not None:
                 button.emoji = emoji
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+    async def interaction_check(self, interaction: discord.Interaction):
         assert isinstance(interaction.user, discord.Member)
 
         author_vc = interaction.user.voice and interaction.user.voice.channel
         bot_vc = interaction.guild.me.voice and interaction.guild.me.voice.channel
 
-        if is_dj(interaction.user) and bot_vc and (not author_vc):
-            pass
-        elif author_vc and bot_vc and (author_vc == bot_vc) and (
-                interaction.user.voice.deaf or interaction.user.voice.self_deaf):
-            return await interaction.response.send_message(
-                '<:redTick:1079249771975413910> You are deafened, please undeafen yourself to use this menu.',
-                ephemeral=True
-            )
-        elif (not author_vc and bot_vc) or (author_vc and bot_vc and author_vc != bot_vc):
-            return await interaction.response.send_message(
-                f'<:redTick:1079249771975413910> You must be in {bot_vc.mention} to use this menu.',
-                ephemeral=True
-            )
-        elif not author_vc:
-            return await interaction.response.send_message(
-                '<:redTick:1079249771975413910> You must be in a voice channel to use this menu.',
-                ephemeral=True
-            )
-
         if retry_after := self.cooldown.update_rate_limit(interaction):
-            return await interaction.response.send_message(
+            await interaction.response.send_message(
                 f'<:redTick:1079249771975413910> You are being rate limited. Try again in {retry_after:.2f} seconds.',
                 ephemeral=True
             )
+            return False
+
+        if is_dj(interaction.user) and bot_vc and (not author_vc):
+            return True
+
+        if author_vc and bot_vc and (author_vc == bot_vc) and (
+                interaction.user.voice.deaf or interaction.user.voice.self_deaf):
+            await interaction.response.send_message(
+                '<:redTick:1079249771975413910> You are deafened, please undeafen yourself to use this menu.',
+                ephemeral=True
+            )
+            return False
+        elif (not author_vc and bot_vc) or (author_vc and bot_vc and author_vc != bot_vc):
+            await interaction.response.send_message(
+                f'<:redTick:1079249771975413910> You must be in {bot_vc.mention} to use this menu.',
+                ephemeral=True
+            )
+            return False
+        elif not author_vc:
+            await interaction.response.send_message(
+                '<:redTick:1079249771975413910> You must be in a voice channel to use this menu.',
+                ephemeral=True
+            )
+            return False
 
         return True
 

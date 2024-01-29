@@ -221,7 +221,7 @@ class PlaylistTools(commands.Cog):
 
         record = await self.bot.pool.fetchval(
             "INSERT INTO playlist (user_id, name, created) VALUES ($1, $2, $3) RETURNING id;",
-            user.id, 'Liked Songs', discord.utils.utcnow())
+            user.id, 'Liked Songs', discord.utils.utcnow().replace(tzinfo=None))
         self.get_playlists.invalidate(self, user.id)
         return record
 
