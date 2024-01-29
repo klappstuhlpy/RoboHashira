@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import suppress
 from typing import Optional
 import discord
 from discord import app_commands
@@ -144,7 +145,8 @@ class TempChannels(commands.Cog):
             if self.bot.temp_channels.get(before.channel.id):
                 if len(before.channel.members) == 0:
                     await self.bot.temp_channels.remove(before.channel.id)
-                    await before.channel.delete()
+                    with suppress(discord.errors.NotFound):
+                        await before.channel.delete()
 
         elif after.channel and before.channel is None:
             config: GuildConfig = await self.bot.cfg.get_config(member.guild.id)
