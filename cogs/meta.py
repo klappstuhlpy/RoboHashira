@@ -577,7 +577,7 @@ class Meta(commands.Cog):
         e.set_footer(text=f'Author ID: {user.id}')
         return e
 
-    @commands.command(commands.command)
+    @commands.command(commands.core_command)
     @commands.cooldown(rate=1, per=60.0, type=commands.BucketType.user)
     async def feedback(self, ctx: Context, *, content: str):
         """Sends feedback about the bot to the owner.
@@ -602,7 +602,7 @@ class Meta(commands.Cog):
 
         await interaction.response.send_modal(FeedbackModal(self))
 
-    @commands.command(commands.command)
+    @commands.command(commands.core_command)
     @commands.is_owner()
     async def pm(self, ctx: Context, user_id: int, *, content: str):
         """Sends a DM to a user by ID."""
