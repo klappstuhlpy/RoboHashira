@@ -170,6 +170,19 @@ def shorten_number(number: int | float) -> str:
     return f'{f'{number:f}'.rstrip('0').rstrip('.')}{['', 'K', 'M', 'B', 'T'][magnitude]}'
 
 
+def merge(*iterables: Iterable[T]) -> Iterator[T]:
+    """Merge multiple iterables into one.
+
+    Parameters
+    ----------
+    *iterables : `iterable` of `iterable`
+        The iterables to merge.
+    """
+
+    for iterable in iterables:
+        yield from iterable
+
+
 def number_suffix(number: int):
     """Returns the suffix for a number.
 
