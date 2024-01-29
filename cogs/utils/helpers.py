@@ -9,8 +9,8 @@ from typing import TypeVar, Self, Callable, Optional, Any, overload, TYPE_CHECKI
 import asyncpg
 import discord
 from discord.ext.commands import TooManyFlags, MissingRequiredFlag, TooManyArguments, MissingFlagArgument
+from discord.ext import commands
 
-from cogs.utils import commands
 from cogs.utils.context import Context
 
 T = TypeVar('T', bound='BaseFlags')
@@ -123,6 +123,167 @@ class PostgresItemMeta(type):
         if cls is PostgresItem:
             raise TypeError('`PostgresItem` cannot be instantiated directly.')
         return super().__call__(*args, **kwargs)
+
+
+class FlagConverter(commands.FlagConverter):
+    """
+    This is an enhanced version of discord.py's FlagConverter that offers greater flexibility.
+
+    With this converter, you can specify flags with no prefix by applying the `without_prefix` attribute to the flag.
+    This allows the use of the flag without a prefix, parsing it as a flag. Useful for commands with one required flag
+    followed by optional flags.
+
+    Class Parameters
+    ----------
+    case_insensitive: bool
+        Toggle case insensitivity of flag parsing. If True, flags are parsed in a case-insensitive manner.
+        Defaults to False.
+    prefix: str
+        The prefix that all flags must be prefixed with. By default, there is no prefix.
+    delimiter: str
+        The delimiter that separates a flag's argument from the flag's name. By default, this is `:`.
+
+    Example
+    --------
+    .. code-block:: python3
+
+            class MyFlags(commands.FlagConverter):
+                foo: bool = commands.Flag(aliases=['bar'], without_prefix=True)
+                bar: str = commands.Flag(description='A flag that requires a string argument.')
+
+            >> Discord: !mycommand this is my foo flag --bar this is my bar flag
+            >> MyFlags(foo=True, bar='this is my bar flag')
+    """
+
+    @classmethod
+    def parse_flags(cls, argument: str, *, ignore_extra: bool = True) -> Dict[str, List[str]]:
+        result: Dict[str, List[str]] = {}
+        flags = cls.__commands_flags__
+        aliases = cls.__commands_flag_aliases__
+
+        case_insensitive = cls.__commands_flag_case_insensitive__
+        last_position = 0
+        flag_first_positions = []
+        last_flag: Optional[commands.Flag] = None
+
+        for match in cls.__commands_flag_regex__.finditer(argument):
+            begin, end = match.span(0)
+            key = aliases.get(match.group('flag').casefold(), match.group('flag'))
+
+            flag = flags.get(key)
+            if last_position and last_flag is not None:
+                value = argument[last_position: begin - 1].lstrip()
+                if not value and not hasattr(last_flag, 'without_prefix'):
+                    raise MissingFlagArgument(last_flag)
+
+                name = last_flag.name.casefold() if case_insensitive else last_flag.name
+                result.setdefault(name, []).append(value)
+
+            last_position = end
+            flag_first_positions.append(begin)
+            last_flag = flag
+
+        # Handle left flags that use a prefix
+        value = argument[last_position:].strip()
+
+        # Add the remaining string to the last available flag
+        if last_flag is not None:
+            if not value:
+                raise MissingFlagArgument(last_flag)
+
+            name = last_flag.name.casefold() if case_insensitive else last_flag.name
+            result.setdefault(name, []).append(value)
+        elif value and not ignore_extra:
+            raise TooManyArguments(f'Too many arguments passed to {cls.__name__}')
+
+        # Handle left flags that do not use a prefix (escape_prefix=True)
+        value = argument[:min(flag_first_positions) if flag_first_positions else len(argument)].rstrip()
+
+        if any(hasattr(flag, 'without_prefix') for flag in flags.values()):
+            last_flag = next((flag for flag in flags.values() if hasattr(flag, 'without_prefix')), None)
+
+        # Add the remaining string to the last available flag
+        if last_flag is not None:
+            if not value:
+                raise MissingFlagArgument(last_flag)
+
+            name = last_flag.name.casefold() if case_insensitive else last_flag.name
+            result.setdefault(name, []).append(value)
+        elif value and not ignore_extra:
+            raise TooManyArguments(f'Too many arguments passed to {cls.__name__}')
+
+        return result
+
+    @classmethod
+    async def convert(cls, ctx: Context, argument: str) -> Self:
+        """|coro|
+
+        The method that actually converters an argument to the flag mapping.
+
+        Parameters
+        ----------
+        ctx: :class:`Context`
+            The invocation context.
+        argument: :class:`str`
+            The argument to convert from.
+
+        Raises
+        --------
+        FlagError
+            A flag related parsing error.
+
+        Returns
+        --------
+        :class:`FlagConverter`
+            The flag converter instance with all flags parsed.
+        """
+
+        ignore_extra = True
+        if (
+                ctx.command is not None
+                and ctx.current_parameter is not None
+                and ctx.current_parameter.kind == ctx.current_parameter.KEYWORD_ONLY
+        ):
+            ignore_extra = ctx.command.ignore_extra
+
+        arguments = cls.parse_flags(argument, ignore_extra=ignore_extra)
+        flags = cls.__commands_flags__
+
+        self = cls.__new__(cls)
+        for name, flag in flags.items():
+            try:
+                values = arguments[name]
+            except KeyError:
+                if flag.required:
+                    raise MissingRequiredFlag(flag)
+                else:
+                    if callable(flag.default):
+                        # Type checker does not understand flag.default is a Callable
+                        default = await maybe_coroutine(flag.default, ctx)  # type: ignore
+                        setattr(self, flag.attribute, default)
+                    else:
+                        setattr(self, flag.attribute, flag.default)
+                    continue
+
+            if 0 < flag.max_args < len(values):
+                if flag.override:
+                    values = values[-flag.max_args:]
+                else:
+                    raise TooManyFlags(flag, values)
+
+            # Special case:
+            if flag.max_args == 1:
+                value = await commands.flags.convert_flag(ctx, values[0], flag)
+                setattr(self, flag.attribute, value)
+                continue
+
+            values = [await commands.flags.convert_flag(ctx, value, flag) for value in values]
+            if flag.cast_to_dict:
+                values = dict(values)
+
+            setattr(self, flag.attribute, values)
+
+        return self
 
 
 class PostgresItem(metaclass=PostgresItemMeta):
@@ -273,167 +434,6 @@ class PostgresItem(metaclass=PostgresItemMeta):
     def get(self, key: str, default: Any = None) -> Any:
         """Returns the value of the item's record."""
         return self.record.get(key, default)
-
-
-class FlagConverter(commands.FlagConverter):
-    """
-    This is an enhanced version of discord.py's FlagConverter that offers greater flexibility.
-
-    With this converter, you can specify flags with no prefix by applying the `escape_prefix` attribute to the flag.
-    This allows the use of the flag without a prefix, parsing it as a flag. Useful for commands with one required flag
-    followed by optional flags.
-
-    Class Parameters
-    ----------
-    case_insensitive: bool
-        Toggle case insensitivity of flag parsing. If True, flags are parsed in a case-insensitive manner.
-        Defaults to False.
-    prefix: str
-        The prefix that all flags must be prefixed with. By default, there is no prefix.
-    delimiter: str
-        The delimiter that separates a flag's argument from the flag's name. By default, this is `:`.
-
-    Example
-    --------
-    .. code-block:: python3
-
-            class MyFlags(commands.FlagConverter):
-                foo: bool = commands.Flag(aliases=['bar'], escape_prefix=True)
-                bar: str = commands.Flag(description='A flag that requires a string argument.')
-
-            >> Discord: !mycommand this is my foo flag --bar this is my bar flag
-            >> MyFlags(foo=True, bar='this is my bar flag')
-    """
-
-    @classmethod
-    def parse_flags(cls, argument: str, *, ignore_extra: bool = True) -> Dict[str, List[str]]:
-        result: Dict[str, List[str]] = {}
-        flags = cls.__commands_flags__
-        aliases = cls.__commands_flag_aliases__
-
-        case_insensitive = cls.__commands_flag_case_insensitive__
-        last_position = 0
-        flag_first_positions = []
-        last_flag: Optional[commands.Flag] = None
-
-        for match in cls.__commands_flag_regex__.finditer(argument):
-            begin, end = match.span(0)
-            key = aliases.get(match.group('flag').casefold(), match.group('flag'))
-
-            flag = flags.get(key)
-            if last_position and last_flag is not None:
-                value = argument[last_position: begin - 1].lstrip()
-                if not value and not hasattr(last_flag, 'escape_prefix'):
-                    raise MissingFlagArgument(last_flag)
-
-                name = last_flag.name.casefold() if case_insensitive else last_flag.name
-                result.setdefault(name, []).append(value)
-
-            last_position = end
-            flag_first_positions.append(begin)
-            last_flag = flag
-
-        # Handle left flags that use a prefix
-        value = argument[last_position:].strip()
-
-        # Add the remaining string to the last available flag
-        if last_flag is not None:
-            if not value:
-                raise MissingFlagArgument(last_flag)
-
-            name = last_flag.name.casefold() if case_insensitive else last_flag.name
-            result.setdefault(name, []).append(value)
-        elif value and not ignore_extra:
-            raise TooManyArguments(f'Too many arguments passed to {cls.__name__}')
-
-        # Handle left flags that do not use a prefix (escape_prefix=True)
-        value = argument[:min(flag_first_positions) if flag_first_positions else len(argument)].rstrip()
-
-        if any(hasattr(flag, 'escape_prefix') for flag in flags.values()):
-            last_flag = next((flag for flag in flags.values() if hasattr(flag, 'escape_prefix')), None)
-
-        # Add the remaining string to the last available flag
-        if last_flag is not None:
-            if not value:
-                raise MissingFlagArgument(last_flag)
-
-            name = last_flag.name.casefold() if case_insensitive else last_flag.name
-            result.setdefault(name, []).append(value)
-        elif value and not ignore_extra:
-            raise TooManyArguments(f'Too many arguments passed to {cls.__name__}')
-
-        return result
-
-    @classmethod
-    async def convert(cls, ctx: Context, argument: str) -> Self:
-        """|coro|
-
-        The method that actually converters an argument to the flag mapping.
-
-        Parameters
-        ----------
-        ctx: :class:`Context`
-            The invocation context.
-        argument: :class:`str`
-            The argument to convert from.
-
-        Raises
-        --------
-        FlagError
-            A flag related parsing error.
-
-        Returns
-        --------
-        :class:`FlagConverter`
-            The flag converter instance with all flags parsed.
-        """
-
-        ignore_extra = True
-        if (
-                ctx.command is not None
-                and ctx.current_parameter is not None
-                and ctx.current_parameter.kind == ctx.current_parameter.KEYWORD_ONLY
-        ):
-            ignore_extra = ctx.command.ignore_extra
-
-        arguments = cls.parse_flags(argument, ignore_extra=ignore_extra)
-        flags = cls.__commands_flags__
-
-        self = cls.__new__(cls)
-        for name, flag in flags.items():
-            try:
-                values = arguments[name]
-            except KeyError:
-                if flag.required:
-                    raise MissingRequiredFlag(flag)
-                else:
-                    if callable(flag.default):
-                        # Type checker does not understand flag.default is a Callable
-                        default = await maybe_coroutine(flag.default, ctx)  # type: ignore
-                        setattr(self, flag.attribute, default)
-                    else:
-                        setattr(self, flag.attribute, flag.default)
-                    continue
-
-            if 0 < flag.max_args < len(values):
-                if flag.override:
-                    values = values[-flag.max_args:]
-                else:
-                    raise TooManyFlags(flag, values)
-
-            # Special case:
-            if flag.max_args == 1:
-                value = await commands.flags.convert_flag(ctx, values[0], flag)
-                setattr(self, flag.attribute, value)
-                continue
-
-            values = [await commands.flags.convert_flag(ctx, value, flag) for value in values]
-            if flag.cast_to_dict:
-                values = dict(values)
-
-            setattr(self, flag.attribute, values)
-
-        return self
 
 
 def ignore_record() -> Callable[[T], T]:

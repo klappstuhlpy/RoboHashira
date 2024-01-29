@@ -26,10 +26,11 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 
-class PlayFlags(helpers.FlagConverter, prefix='--', delimiter=' '):
+class PlayFlags(commands.FlagConverter, prefix='--', delimiter=' '):
     """Flags for the music commands."""
     query: str = commands.Flag(name='query', aliases=['q'])
-    query.__setattr__('escape_prefix', True)
+    query.__setattr__('without_prefix', True)
+
     source: Literal['yt', 'sp', 'sc'] = commands.Flag(name='source', aliases=['s'], default='yt')
     force: Optional[bool] = commands.Flag(name='force', aliases=['f'], default=False)
 
