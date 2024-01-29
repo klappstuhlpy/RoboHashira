@@ -1,7 +1,8 @@
 from __future__ import annotations
+
+import datetime
 from typing import Optional, List, Any, Type, cast
 
-import asyncpg
 import wavelink
 import discord
 from discord import app_commands
@@ -15,6 +16,7 @@ from bot import RoboHashira
 from .utils.formats import plural, get_shortened_string
 from cogs.utils.player import Player
 from cogs.utils.paginator import BasePaginator, TextSource
+from .utils.helpers import PostgresItem
 
 
 class PlaylistSelect(discord.ui.Select):
@@ -78,29 +80,19 @@ class PlaylistPaginator(BasePaginator):
         return self
 
 
-class Playlist:
-    def __init__(self, cog: PlaylistTools, record: asyncpg.Record):
+class Playlist(PostgresItem):
+    id: int
+    name: str
+    owner_id: int
+    created_at: datetime
+
+    __slots__ = ('cog', 'id', 'name', 'owner_id', 'created_at', 'tracks', 'is_liked_songs')
+
+    def __init__(self, cog: PlaylistTools, **kwargs):
         self.cog: PlaylistTools = cog
-        self.bot: RoboHashira = cog.bot
-
-        self.id = record['id']
-        self.name = record['name']
-        self.owner_id = record['user_id']
-        self.created_at = record['created']
         self.tracks: list[PlaylistTrack] = []
-
+        super().__init__(**kwargs)
         self.is_liked_songs = self.name == 'Liked Songs'
-
-    def __contains__(self, item: str) -> bool:
-        for track in self.tracks:
-            if item == track.url:
-                return True
-        return False
-
-    def __eq__(self, other: object) -> bool:
-        if isinstance(other, Playlist):
-            return self.id == other.id
-        return False
 
     def __repr__(self):
         return f'<Playlist id={self.id} name={self.name}>'
@@ -131,14 +123,14 @@ class Playlist:
 
     async def add_track(self, track: Playable) -> PlaylistTrack:
         query = "INSERT INTO playlist_lookup (playlist_id, name, url) VALUES ($1, $2, $3) RETURNING *;"
-        record = await self.bot.pool.fetchrow(query, self.id, track.title, track.uri)
+        record = await self.cog.bot.pool.fetchrow(query, self.id, track.title, track.uri)
 
         track = PlaylistTrack(record)
         self.tracks.append(track)
         return track
 
     async def remove_track(self, track: PlaylistTrack):
-        await self.bot.pool.execute("DELETE FROM playlist_lookup WHERE id = $1;", track.id)
+        await self.cog.bot.pool.execute("DELETE FROM playlist_lookup WHERE id = $1;", track.id)
         self.tracks.remove(track)
 
     def to_embeds(self) -> List[discord.Embed]:
@@ -168,25 +160,26 @@ class Playlist:
 
     async def delete(self) -> None:
         query = "DELETE FROM playlist WHERE id = $1;"
-        await self.bot.pool.execute(query, self.id)
+        await self.cog.bot.pool.execute(query, self.id)
 
         query = "DELETE FROM playlist_lookup WHERE playlist_id = $1;"
-        await self.bot.pool.execute(query, self.id)
+        await self.cog.bot.pool.execute(query, self.id)
 
         self.cog.get_playlists.invalidate(self, self.owner_id)
 
     async def clear(self) -> None:
         query = "DELETE FROM playlist_lookup WHERE playlist_id = $1;"
-        await self.bot.pool.execute(query, self.id)
+        await self.cog.bot.pool.execute(query, self.id)
 
         self.tracks = []
 
 
-class PlaylistTrack:
-    def __init__(self, record: asyncpg.Record):
-        self.id = record['id']
-        self.name = record['name']
-        self.url = record['url']
+class PlaylistTrack(PostgresItem):
+    id: int
+    name: str
+    url: str
+
+    __slots__ = ('id', 'name', 'url')
 
     @property
     def text(self) -> str:
@@ -242,7 +235,7 @@ class PlaylistTools(commands.Cog):
     async def get_playlist(self, playlist_id: int, pass_tracks: bool = False) -> Optional[Playlist]:
         """Gets a poll by ID."""
         record = await self.bot.pool.fetchrow("SELECT * FROM playlist WHERE id=$1;", playlist_id)
-        playlist = Playlist(self, record) if record else None
+        playlist = Playlist(self, record=record) if record else None
         if playlist is not None and pass_tracks is False:
             records = await self.bot.pool.fetch("SELECT * FROM playlist_lookup WHERE playlist_id=$1;", playlist_id)
             playlist.tracks = [PlaylistTrack(record) for record in records]
@@ -252,7 +245,7 @@ class PlaylistTools(commands.Cog):
         """Gets a User 'Liked Songs' playlist."""
         record = await self.bot.pool.fetchrow("SELECT * FROM playlist WHERE user_id=$1 AND name=$2 LIMIT 1;", user_id,
                                               'Liked Songs')
-        playlist = Playlist(self, record) if record else None
+        playlist = Playlist(self, record=record) if record else None
         if playlist is not None:
             records = await self.bot.pool.fetch("SELECT * FROM playlist_lookup WHERE playlist_id=$1;", playlist.id)
             playlist.tracks = [PlaylistTrack(record) for record in records]
@@ -262,7 +255,7 @@ class PlaylistTools(commands.Cog):
     async def get_playlists(self, user_id: int) -> list[Playlist]:
         """Get all playlists from a user."""
         records = await self.bot.pool.fetch("SELECT * FROM playlist WHERE user_id=$1;", user_id)
-        playlists = [Playlist(self, record) for record in records]
+        playlists = [Playlist(self, record=record) for record in records]
         for playlist in playlists:
             records = await self.bot.pool.fetch("SELECT * FROM playlist_lookup WHERE playlist_id=$1;", playlist.id)
             playlist.tracks = [PlaylistTrack(record) for record in records]

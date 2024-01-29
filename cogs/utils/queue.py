@@ -24,7 +24,7 @@ class Queue(wavelink.Queue):
     @property
     def all(self) -> List[wavelink.Playable]:
         """Returns a list of all tracks in the queue and history without duplicates."""
-        return formats.merge(True, self.history, self._queue)
+        return list(formats.merge(self.history, self._queue))
 
     @property
     def duration(self) -> int:

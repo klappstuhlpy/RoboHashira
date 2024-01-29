@@ -26,13 +26,12 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 
-class PlayFlags(commands.FlagConverter):
+class PlayFlags(helpers.FlagConverter, prefix='--', delimiter=' '):
     """Flags for the music commands."""
-    query: str = commands.Flag(name='query', description='The query to search for.', aliases=['q'])
-    source: Literal['yt', 'sp', 'sc'] = commands.Flag(
-        name='source', description='The type of search you want to do. (Default: YouTube)', default='yt')
-    force: Optional[bool] = commands.Flag(name='force', description='Play the track immediately from the queue.',
-                                          default=False)
+    query: str = commands.Flag(name='query', aliases=['q'])
+    query.__setattr__('escape_prefix', True)
+    source: Literal['yt', 'sp', 'sc'] = commands.Flag(name='source', aliases=['s'], default='yt')
+    force: Optional[bool] = commands.Flag(name='force', aliases=['f'], default=False)
 
 
 class Music(commands.Cog):
