@@ -18,11 +18,12 @@ from cogs.config import GuildConfig
 from cogs.utils import converters
 from cogs.utils.context import Context
 from cogs.utils.queue import Queue
+from launcher import get_logger
 
 if TYPE_CHECKING:
     from bot import RoboHashira
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 T = TypeVar('T')
 
 

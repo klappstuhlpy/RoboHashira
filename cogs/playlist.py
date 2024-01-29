@@ -3,7 +3,6 @@ from typing import Optional, List, Any, Type, cast
 
 import asyncpg
 import wavelink
-from discord.ext import commands
 import discord
 from discord import app_commands
 from discord.ext.commands._types import BotT
@@ -11,7 +10,7 @@ from wavelink import Playable
 
 from .music import Music
 from .utils.context import Context
-from .utils import checks, cache, fuzzy, formats, _commands
+from .utils import checks, cache, fuzzy, helpers, commands
 from bot import RoboHashira
 from .utils.formats import plural, get_shortened_string
 from cogs.utils.player import Player
@@ -269,7 +268,7 @@ class PlaylistTools(commands.Cog):
             playlist.tracks = [PlaylistTrack(record) for record in records]
         return playlists
 
-    @_commands.command(
+    @commands.command(
         commands.hybrid_group,
         name='playlist',
         description='Manage your playlist.'
@@ -279,7 +278,7 @@ class PlaylistTools(commands.Cog):
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @_commands.command(playlist.command, name='list', description='Display all your playlists and tracks.')
+    @commands.command(playlist.command, name='list', description='Display all your playlists and tracks.')
     async def playlist_list(self, ctx: Context):
         """Display all your playlists and tracks."""
         playlists = await self.get_playlists(ctx.author.id)
@@ -310,7 +309,7 @@ class PlaylistTools(commands.Cog):
         PlaylistPaginator.start_pages = embeds
         await PlaylistPaginator.start(ctx, entries=embeds, per_page=1, ephemeral=True)
 
-    @_commands.command(playlist.command, name='create', description='Create a new playlist.')
+    @commands.command(playlist.command, name='create', description='Create a new playlist.')
     @app_commands.describe(name='The name of your new playlist.')
     async def playlist_create(self, ctx: Context, name: str):
         """Create a new playlist."""
@@ -334,7 +333,7 @@ class PlaylistTools(commands.Cog):
         await ctx.stick(True, f'Successfully created playlist **{name}** [`{record}`].',
                         ephemeral=True)
 
-    @_commands.command(
+    @commands.command(
         playlist.command,
         name='play',
         description='Add the songs from you playlist to the plugins queue and play them.',
@@ -380,7 +379,7 @@ class PlaylistTools(commands.Cog):
 
         embed = discord.Embed(
             description=f'`🎶` Successfully added **{new_queue}/{len(playlist.tracks)}** tracks from your playlist to the queue.',
-            color=formats.Colour.teal())
+            color=helpers.Colour.teal())
         if not succeeded:
             embed.description += f'\n<:warning:1076913452775383080> *Some tracks may not have been added due to unexpected issues.*'
         embed.set_author(name=f'[{playlist.id}] • {playlist.name}', icon_url=ctx.author.avatar.url)
@@ -394,7 +393,7 @@ class PlaylistTools(commands.Cog):
         else:
             await player.view.update()
 
-    @_commands.command(
+    @commands.command(
         playlist.command,
         name='add',
         description='Adds the current playing track or a track via a direct-url to your playlist.'
@@ -426,7 +425,7 @@ class PlaylistTools(commands.Cog):
             embed = discord.Embed(
                 description=f'Added Track **[{player.current.title}]({player.current.uri})** to your playlist '
                             f'at Position **#{len(playlist.tracks)}**',
-                color=formats.Colour.teal()
+                color=helpers.Colour.teal()
             )
             embed.set_thumbnail(url=player.current.artwork)
             embed.set_author(name=ctx.author, icon_url=ctx.author.avatar.url)
@@ -461,7 +460,7 @@ class PlaylistTools(commands.Cog):
                 embed = discord.Embed(
                     description=f'Added **{success}**/**{len(result.tracks)}** Tracks from {result.name} **[{result.name}]({result.url})** to your playlist.\n'
                                 f'Next Track at Position **#{len(playlist.tracks)}**',
-                    color=formats.Colour.teal())
+                    color=helpers.Colour.teal())
                 embed.set_thumbnail(url=result.artwork)
                 embed.set_author(name=ctx.author, icon_url=ctx.author.avatar.url)
                 embed.set_footer(text=f'[{playlist.id}] • {playlist.name}')
@@ -477,7 +476,7 @@ class PlaylistTools(commands.Cog):
                 embed = discord.Embed(
                     description=f'Added Track **[{result.title}]({result.uri})** to your playlist.\n'
                                 f'Track at Position **#{len(playlist.tracks)}**',
-                    color=formats.Colour.teal())
+                    color=helpers.Colour.teal())
                 embed.set_thumbnail(url=result.artwork)
                 embed.set_author(name=ctx.author, icon_url=ctx.author.avatar.url)
                 embed.set_footer(text=f'[{playlist.id}] • {playlist.name}')
@@ -485,7 +484,7 @@ class PlaylistTools(commands.Cog):
 
         self.get_playlists.invalidate(self, ctx.author.id)
 
-    @_commands.command(
+    @commands.command(
         playlist.command,
         name='delete',
         description='Delete a playlist.'
@@ -506,7 +505,7 @@ class PlaylistTools(commands.Cog):
                         ephemeral=True)
         self.get_playlists.invalidate(self, ctx.author.id)
 
-    @_commands.command(
+    @commands.command(
         playlist.command,
         name='clear',
         description='Clear all Items in a playlist.'
@@ -527,7 +526,7 @@ class PlaylistTools(commands.Cog):
                         ephemeral=True)
         self.get_playlists.invalidate(self, ctx.author.id)
 
-    @_commands.command(
+    @commands.command(
         playlist.command,
         name='remove',
         description='Remove a track from your playlist.'

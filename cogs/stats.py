@@ -7,29 +7,35 @@ import io
 import itertools
 import logging
 import os
-import pathlib
 import re
 import sys
 import textwrap
 import traceback
 from collections import Counter, defaultdict
-from typing import TYPE_CHECKING, Any, Optional, TypedDict, List
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Optional, TypedDict
 
 import asyncpg
 import discord
 import psutil
 import pygit2
-from discord.ext import commands, tasks, menus
+from discord.ext import tasks
 from typing_extensions import Annotated
 
-from cogs.utils.paginator import BasePaginator
-from .utils import formats, timetools, constants, _commands
+from launcher import get_logger
+from .utils import formats, timetools, commands, helpers
+from .utils.constants import BOT_BASE_FOLDER
+from .utils.converters import get_asset_url
+from .utils.formats import censor_object
+from .utils.paginator import FilePaginator
+from .utils.render import Render
+from .utils.tasks import executor
 
 if TYPE_CHECKING:
     from bot import RoboHashira
     from .utils.context import GuildContext, Context
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 LOGGING_CHANNEL = 1071402429125496997
 
@@ -89,39 +95,44 @@ def object_at(addr: int) -> Optional[Any]:
     return None
 
 
-# noinspection HttpUrlsUsage
 class Stats(commands.Cog):
     """Bot Statistics and Information."""
 
     def __init__(self, bot: RoboHashira):
         self.bot: RoboHashira = bot
         self.process = psutil.Process()
+
         self._batch_lock = asyncio.Lock()
         self._data_batch: list[DataBatchEntry] = []
+
         self.bulk_insert_loop.add_exception_type(asyncpg.PostgresConnectionError)
         self.bulk_insert_loop.start()
+
         self._logging_queue = asyncio.Queue()
         self.logging_worker.start()
+
+        self.render: Render = Render  # type: ignore
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='graph', id=1104490238312718417)
 
     async def bulk_insert(self) -> None:
-        query = """INSERT INTO commands (guild_id, channel_id, author_id, used, prefix, command, failed, app_command)
-                   SELECT x.guild, x.channel, x.author, x.used, x.prefix, x.command, x.failed, x.app_command
-                   FROM jsonb_to_recordset($1::jsonb) AS
-                   x(
-                        guild BIGINT,
-                        channel BIGINT,
-                        author BIGINT,
-                        used TIMESTAMP,
-                        prefix TEXT,
-                        command TEXT,
-                        failed BOOLEAN,
-                        app_command BOOLEAN
-                    )
-                """
+        query = """
+            INSERT INTO commands (guild_id, channel_id, author_id, used, prefix, command, failed, app_command)
+            SELECT x.guild, x.channel, x.author, x.used, x.prefix, x.command, x.failed, x.app_command
+            FROM jsonb_to_recordset($1::jsonb) AS
+            x(
+                guild BIGINT,
+                channel BIGINT,
+                author BIGINT,
+                used TIMESTAMP,
+                prefix TEXT,
+                command TEXT,
+                failed BOOLEAN,
+                app_command BOOLEAN
+            )
+        """
 
         if self._data_batch:
             await self.bot.pool.execute(query, self._data_batch)
@@ -200,50 +211,72 @@ class Stats(commands.Cog):
     async def on_socket_event_type(self, event_type: str):
         self.bot.socket_stats[event_type] += 1
 
-    @discord.utils.cached_property
-    def webhook(self) -> discord.Webhook:
-        wh_id, wh_token = self.bot.config.stat_webhook
-        hook = discord.Webhook.partial(id=wh_id, token=wh_token, session=self.bot.session)
-        return hook
+    @commands.command(
+        commands.group,
+        name='command',
+        invoke_without_command=True,
+        hidden=True,
+        description='Shows the current command usage statistics.',
+    )
+    async def _cmd(self, ctx: Context):
+        """Shows the current command usage statistics."""
+        if self.bot.is_owner(ctx.author) and ctx.invoked_subcommand is None:
+            await ctx.send_help(ctx.command)
 
-    @commands.command(hidden=True)
+    @commands.command(_cmd.command, name='stats', description='Shows the current command usage statistics.')
+    @commands.is_owner()
+    async def command_stats(self, ctx: Context, *, limit: int = 12):
+        """Shows the current command usage statistics.
+        Note: Use a negative number for bottom instead of top.
+        """
+        counter = self.bot.command_stats
+        total = sum(counter.values())
+        slash_commands = self.bot.command_types_used[True]
+
+        delta = discord.utils.utcnow() - self.bot.launched_at
+        minutes = delta.total_seconds() / 60
+        cpm = total / minutes
+
+        if limit > 0:
+            common = counter.most_common(limit)
+            title = f'Top `{limit}` Commands'
+        else:
+            common = counter.most_common()[limit:]
+            title = f'Bottom `{limit}` Commands'
+
+        images = self.render.generate_bar_chart(
+            dict(sorted({k: v for k, v in common}.items(), key=lambda item: item[1], reverse=True)),
+            title=f'{total} total commands used ({slash_commands} slash command uses) ({cpm:.2f}/minute)')
+        await ctx.send(f'## {title}')
+        await FilePaginator.start(ctx, entries=images, per_page=1)
+
+    @commands.command(
+        commands.core_command,
+        hidden=True,
+        description='Shows the current socket event statistics.',
+    )
     async def socketstats(self, ctx: Context):
         delta = discord.utils.utcnow() - self.bot.launched_at
         minutes = delta.total_seconds() / 60
         total = sum(self.bot.socket_stats.values())
         cpm = total / minutes
-        socket_stats = '\n'.join(
-            f'{k}: {v}' for k, v in reversed(sorted(self.bot.socket_stats.items(), key=lambda item: item[1])))
-        await ctx.send(f'{total:,} socket events observed ({cpm:.2f}/minute):\n```swift\n{socket_stats}```')
+        images = self.render.generate_bar_chart(
+            dict(sorted(self.bot.socket_stats.items(), key=lambda item: item[1], reverse=True)),
+            title=f'{total:,} socket events observed ({cpm:.2f}/minute)')
+        await FilePaginator.start(ctx, entries=images, per_page=1)
 
     def get_bot_uptime(self, *, brief: bool = False) -> str:
         return timetools.human_timedelta(self.bot.launched_at, accuracy=None, brief=brief, suffix=False)
 
-    @commands.command()
+    @commands.command(commands.core_command, description='Tells you how long the bot has been up for.')
     async def uptime(self, ctx: Context):
         """Tells you how long the bot has been up for."""
         await ctx.send(f'Uptime: **{self.get_bot_uptime()}**')
 
-    def format_commit(self, commit: pygit2.Commit) -> str:
-        short, _, _ = commit.message.partition('\n')
-        short_sha2 = commit.hex[0:6]
-        commit_tz = datetime.timezone(datetime.timedelta(minutes=commit.commit_time_offset))
-        commit_time = datetime.datetime.fromtimestamp(commit.commit_time).astimezone(commit_tz)
-
-        offset = discord.utils.format_dt(commit_time.astimezone(datetime.timezone.utc), 'R')
-        return f'[`{short_sha2}`](https://github.com/klappstuhlpy/RoboHashira/commit/{commit.hex}) {short} ({offset})'
-
-    def get_last_commits(self, count=4):
-        repo = pygit2.Repository(os.path.join(constants.BOT_BASE_FOLDER, '/rendering/repo/.git'))
-        commits = list(itertools.islice(repo.walk(repo.head.target, pygit2.GIT_SORT_TOPOLOGICAL), count))
-        return '\n'.join(self.format_commit(c) for c in commits)
-
-    def line_count(self) -> tuple[int, int, int, int, int, int]:
-        path = pathlib.Path(__file__).parent.parent
-        ignored = [
-            pathlib.Path(os.path.join(path, 'rendering')),
-            pathlib.Path(os.path.join(path, 'venv')),
-        ]
+    @executor
+    def line_counter(self) -> str:
+        path = Path(__file__).parent.parent
+        ignored = [Path(os.path.join(path, 'venv'))]
         files = classes = funcs = comments = lines = characters = 0
         for f in path.rglob(f'*.py'):
             if any(parent in ignored for parent in f.parents):
@@ -255,50 +288,43 @@ class Stats(commands.Cog):
                     line = line.strip()
                     if line.startswith('class'):
                         classes += 1
-                    if line.startswith('def'):
-                        funcs += 1
-                    if line.startswith('async def'):
+                    if line.startswith('def') or line.startswith('async def'):
                         funcs += 1
                     if '#' in line:
                         comments += 1
                     lines += 1
-        return files, classes, funcs, comments, lines, characters
+        stats = {'Files': files, 'Classes': classes, 'Functions': funcs,
+                 'Comments': comments, 'Lines': lines, 'Characters': characters}
+        return '\n'.join(f'{k}: {v}' for k, v in stats.items())
 
-    @commands.hybrid_command()
+    @staticmethod
+    def format_commit(commit: pygit2.Commit) -> str:
+        short, _, _ = commit.message.partition('\n')
+        short_sha2 = commit.hex[0:6]
+        commit_tz = datetime.timezone(datetime.timedelta(minutes=commit.commit_time_offset))
+        commit_time = datetime.datetime.fromtimestamp(commit.commit_time).astimezone(commit_tz)
+
+        offset = discord.utils.format_dt(commit_time.astimezone(datetime.timezone.utc), 'R')
+        return f'[`{short_sha2}`](https://github.com/klappstuhlpy/Percy/commit/{commit.hex}) {short} ({offset})'
+
+    def get_last_commits(self, count=4, repo_path: str = BOT_BASE_FOLDER) -> str:
+        repo = pygit2.Repository(os.path.join(repo_path, '.git'))
+        commits = list(itertools.islice(repo.walk(repo.head.target, pygit2.GIT_SORT_TOPOLOGICAL), count))
+        return '\n'.join(self.format_commit(c) for c in commits)
+
+    @commands.command()
     async def about(self, ctx: Context):
         """Tells you information about the bot itself."""
 
         revision = self.get_last_commits()
         embed = discord.Embed(description='Latest Changes:\n' + revision)
         embed.title = 'Official Bot Server Invite'
-        embed.url = 'https://support.claude-bot.de/'
-        embed.colour = formats.Colour.teal()
+        embed.url = 'https://discord.gg/eKwMtGydqh'
+        embed.colour = self.bot.colour.darker_red()
 
-        embed.set_author(name=str(self.bot.owner), icon_url=self.bot.owner.display_avatar.url,
-                         url=f'https://discord.com/users/{self.bot.owner.id}')
+        embed.set_author(name=str(self.bot.owner), icon_url=self.bot.owner.display_avatar.url)
+        embed.set_thumbnail(url=self.bot.user.avatar.url)
 
-        (
-            files,
-            classes,
-            funcs,
-            comments,
-            lines,
-            characters,
-
-        ) = await self.bot.loop.run_in_executor(None, self.line_count)
-
-        f_stats = {
-            'Characters': characters,
-            'Functions': funcs,
-            'Comments': comments,
-            'Classes': classes,
-            'Files': files,
-            'Lines': lines,
-        }
-
-        f_stats_str = '\n'.join(f'{k}: {v}' for k, v in f_stats.items())
-
-        # statistics
         total_members = 0
         total_unique = len(self.bot.users)
 
@@ -324,21 +350,21 @@ class Stats(commands.Cog):
         memory_usage = self.process.memory_full_info().uss / 1024 ** 2
         cpu_usage = self.process.cpu_percent() / psutil.cpu_count()
 
-        version = "N/A"
         embed.add_field(name='Guilds', value=guilds)
-        embed.add_field(name='Commands Run', value=sum(self.bot.command_stats.values()))
+        embed.add_field(name='Commands run since last reboot', value=sum(self.bot.command_stats.values()))
         embed.add_field(name='Uptime', value=self.get_bot_uptime(brief=True))
         embed.add_field(name='​', value='​')
-        embed.add_field(name='File Stats', value=f'```py\n{f_stats_str}```')
+
+        file_stats = await self.line_counter()
+        embed.add_field(name='File Stats', value=f'```py\n{file_stats}```')
         embed.add_field(
             name='Process',
             value=f'```py\n'
                   f'CPU: {cpu_usage:.2f}% CPU\n'
                   f'Memory: {memory_usage:.2f} MiB | {psutil.virtual_memory().percent}%\n'
-                  f'Disk: {psutil.disk_usage(pathlib.Path(__file__).parent.parent.__str__()).percent}%```'
-        )
+                  f'Disk: {psutil.disk_usage(str(Path(__file__).parent.parent)).percent}%```')
 
-        embed.set_footer(text=f'Made with discord.py v{version}', icon_url='http://i.imgur.com/5BFecvA.png')
+        embed.set_footer(text=f'Made with discord.py v{discord.__version__}', icon_url='http://i.imgur.com/5BFecvA.png')
         embed.timestamp = discord.utils.utcnow()
         await ctx.send(embed=embed)
 
@@ -346,13 +372,9 @@ class Stats(commands.Cog):
     async def about_invoke(self, ctx: Context):
         await ctx.typing()
 
-    def censor_object(self, obj: str | discord.abc.Snowflake) -> str:
-        if not isinstance(obj, str) and obj.id in self.bot.blacklist:
-            return '[censored]'
-        return censor_invite(obj)
-
-    async def show_guild_stats(self, ctx: GuildContext) -> None:
-        lookup = (
+    @staticmethod
+    async def show_guild_stats(ctx: GuildContext) -> None:
+        medals = (
             '\N{FIRST PLACE MEDAL}',
             '\N{SECOND PLACE MEDAL}',
             '\N{THIRD PLACE MEDAL}',
@@ -360,7 +382,7 @@ class Stats(commands.Cog):
             '\N{SPORTS MEDAL}',
         )
 
-        embed = discord.Embed(title='Server Command Stats', colour=formats.Colour.teal())
+        embed = discord.Embed(title='Server Command Stats', colour=helpers.Colour.darker_red())
 
         query = "SELECT COUNT(*), MIN(used) FROM commands WHERE guild_id=$1;"
         count: tuple[int, datetime.datetime] = await ctx.db.fetchrow(query, ctx.guild.id)  # type: ignore
@@ -373,59 +395,62 @@ class Stats(commands.Cog):
 
         embed.set_footer(text='Tracking command usage since').timestamp = timestamp
 
-        query = """SELECT command,
-                          COUNT(*) as "uses"
-                   FROM commands
-                   WHERE guild_id=$1
-                   GROUP BY command
-                   ORDER BY 'uses' DESC
-                   LIMIT 5;
-                """
+        query = """
+            SELECT command,
+                  COUNT(*) as "uses"
+            FROM commands
+            WHERE guild_id=$1
+            GROUP BY command
+            ORDER BY 'uses' DESC
+            LIMIT 5;
+        """
 
         records = await ctx.db.fetch(query, ctx.guild.id)
 
         value = (
                 '\n'.join(
-                    f'{lookup[index]}: {command} (`{uses}` uses)' for (index, (command, uses)) in enumerate(records))
+                    f'{medals[index]}: {command} (`{uses}` uses)' for (index, (command, uses)) in enumerate(records))
                 or '*No Command Usages available.*'
         )
 
         embed.add_field(name='Top Commands', value=value, inline=True)
 
-        query = """SELECT command,
-                          COUNT(*) as "uses"
-                   FROM commands
-                   WHERE guild_id=$1
-                   AND used > (CURRENT_TIMESTAMP - INTERVAL '1 day')
-                   GROUP BY command
-                   ORDER BY 'uses' DESC
-                   LIMIT 5;
-                """
+        query = """
+            SELECT command,
+                  COUNT(*) as "uses"
+            FROM commands
+            WHERE guild_id=$1
+            AND used > (CURRENT_TIMESTAMP - INTERVAL '1 day')
+            GROUP BY command
+            ORDER BY 'uses' DESC
+            LIMIT 5;
+        """
 
         records = await ctx.db.fetch(query, ctx.guild.id)
 
         value = (
                 '\n'.join(
-                    f'{lookup[index]}: {command} (`{uses}` uses)' for (index, (command, uses)) in enumerate(records))
+                    f'{medals[index]}: {command} (`{uses}` uses)' for (index, (command, uses)) in enumerate(records))
                 or '*No Command Usages available.*'
         )
         embed.add_field(name='Top Commands Today', value=value, inline=True)
         embed.add_field(name='\u200b', value='\u200b', inline=True)
 
-        query = """SELECT author_id,
-                          COUNT(*) AS "uses"
-                   FROM commands
-                   WHERE guild_id=$1
-                   GROUP BY author_id
-                   ORDER BY 'uses' DESC
-                   LIMIT 5;
-                """
+        query = """
+            SELECT author_id,
+                  COUNT(*) AS "uses"
+            FROM commands
+            WHERE guild_id=$1
+            GROUP BY author_id
+            ORDER BY 'uses' DESC
+            LIMIT 5;
+        """
 
         records = await ctx.db.fetch(query, ctx.guild.id)
 
         value = (
                 '\n'.join(
-                    f'{lookup[index]}: <@!{author_id}> (`{uses}` bot uses)' for (index, (author_id, uses)) in
+                    f'{medals[index]}: <@!{author_id}> (`{uses}` bot uses)' for (index, (author_id, uses)) in
                     enumerate(records)
                 )
                 or '*No Command Bot Users available.*'
@@ -433,21 +458,22 @@ class Stats(commands.Cog):
 
         embed.add_field(name='Top Command Users', value=value, inline=True)
 
-        query = """SELECT author_id,
-                          COUNT(*) AS "uses"
-                   FROM commands
-                   WHERE guild_id=$1
-                   AND used > (CURRENT_TIMESTAMP - INTERVAL '1 day')
-                   GROUP BY author_id
-                   ORDER BY 'uses' DESC
-                   LIMIT 5;
-                """
+        query = """
+            SELECT author_id,
+                  COUNT(*) AS "uses"
+            FROM commands
+            WHERE guild_id=$1
+            AND used > (CURRENT_TIMESTAMP - INTERVAL '1 day')
+            GROUP BY author_id
+            ORDER BY 'uses' DESC
+            LIMIT 5;
+        """
 
         records = await ctx.db.fetch(query, ctx.guild.id)
 
         value = (
                 '\n'.join(
-                    f'{lookup[index]}: <@!{author_id}> (`{uses}` bot uses)' for (index, (author_id, uses)) in
+                    f'{medals[index]}: <@!{author_id}> (`{uses}` bot uses)' for (index, (author_id, uses)) in
                     enumerate(records)
                 )
                 or '*No Command Bot Users available.*'
@@ -456,7 +482,8 @@ class Stats(commands.Cog):
         embed.add_field(name='Top Command Users Today', value=value, inline=True)
         await ctx.send(embed=embed)
 
-    async def show_member_stats(self, ctx: GuildContext, member: discord.Member) -> None:
+    @staticmethod
+    async def show_member_stats(ctx: GuildContext, member: discord.Member) -> None:
         lookup = (
             '\N{FIRST PLACE MEDAL}',
             '\N{SECOND PLACE MEDAL}',
@@ -479,14 +506,15 @@ class Stats(commands.Cog):
 
         embed.set_footer(text='First command used').timestamp = timestamp
 
-        query = """SELECT command,
-                          COUNT(*) as "uses"
-                   FROM commands
-                   WHERE guild_id=$1 AND author_id=$2
-                   GROUP BY command
-                   ORDER BY 'uses' DESC
-                   LIMIT 5;
-                """
+        query = """
+            SELECT command,
+                  COUNT(*) as "uses"
+            FROM commands
+            WHERE guild_id=$1 AND author_id=$2
+            GROUP BY command
+            ORDER BY 'uses' DESC
+            LIMIT 5;
+        """
 
         records = await ctx.db.fetch(query, ctx.guild.id, member.id)
 
@@ -498,16 +526,17 @@ class Stats(commands.Cog):
 
         embed.add_field(name='Most Used Commands', value=value, inline=False)
 
-        query = """SELECT command,
-                          COUNT(*) as "uses"
-                   FROM commands
-                   WHERE guild_id=$1
-                   AND author_id=$2
-                   AND used > (CURRENT_TIMESTAMP - INTERVAL '1 day')
-                   GROUP BY command
-                   ORDER BY 'uses' DESC
-                   LIMIT 5;
-                """
+        query = """
+            SELECT command,
+                  COUNT(*) as "uses"
+            FROM commands
+            WHERE guild_id=$1
+            AND author_id=$2
+            AND used > (CURRENT_TIMESTAMP - INTERVAL '1 day')
+            GROUP BY command
+            ORDER BY 'uses' DESC
+            LIMIT 5;
+        """
 
         records = await ctx.db.fetch(query, ctx.guild.id, member.id)
 
@@ -520,10 +549,15 @@ class Stats(commands.Cog):
         embed.add_field(name='Most Used Commands Today', value=value, inline=False)
         await ctx.send(embed=embed)
 
-    @commands.group(invoke_without_command=True)
+    @commands.command(
+        commands.group,
+        name='stats',
+        description='Tells you command usage stats for the server or a member.',
+        invoke_without_command=True
+    )
     @commands.guild_only()
     @commands.cooldown(1, 30.0, type=commands.BucketType.member)
-    async def stats(self, ctx: GuildContext, *, member: discord.Member = None):
+    async def stats(self, ctx: GuildContext, *, member: Annotated[discord.Member, commands.MemberConverter] = None):
         """Tells you command usage stats for the server or a member."""
         async with ctx.typing():
             if member is None:
@@ -531,7 +565,11 @@ class Stats(commands.Cog):
             else:
                 await self.show_member_stats(ctx, member)
 
-    @stats.command(name='global')
+    @commands.command(
+        stats.command,
+        name='global',
+        description='Global all time command statistics.',
+    )
     @commands.is_owner()
     async def stats_global(self, ctx: Context):
         """Global all time command statistics."""
@@ -539,7 +577,7 @@ class Stats(commands.Cog):
         query = "SELECT COUNT(*) FROM commands;"
         total: tuple[int] = await ctx.db.fetchrow(query)  # type: ignore
 
-        e = discord.Embed(title='Command Stats', colour=formats.Colour.teal())
+        e = discord.Embed(title='Command Stats', colour=helpers.Colour.darker_red())
         e.description = f'`{total[0]}` commands used.'
 
         lookup = (
@@ -550,24 +588,26 @@ class Stats(commands.Cog):
             '\N{SPORTS MEDAL}',
         )
 
-        query = """SELECT command, COUNT(*) AS "uses"
-                   FROM commands
-                   GROUP BY command
-                   ORDER BY 'uses' DESC
-                   LIMIT 5;
-                """
+        query = """
+            SELECT command, COUNT(*) AS "uses"
+            FROM commands
+            GROUP BY command
+            ORDER BY 'uses' DESC
+            LIMIT 5;
+        """
 
         records = await ctx.db.fetch(query)
         value = '\n'.join(
             f'{lookup[index]}: {command} (`{uses}` uses)' for (index, (command, uses)) in enumerate(records))
         e.add_field(name='Top Commands', value=value, inline=False)
 
-        query = """SELECT guild_id, COUNT(*) AS "uses"
-                   FROM commands
-                   GROUP BY guild_id
-                   ORDER BY 'uses' DESC
-                   LIMIT 5;
-                """
+        query = """
+                SELECT guild_id, COUNT(*) AS "uses"
+                FROM commands
+                GROUP BY guild_id
+                ORDER BY 'uses' DESC
+                LIMIT 5;
+            """
 
         records = await ctx.db.fetch(query)
         value = []
@@ -575,31 +615,36 @@ class Stats(commands.Cog):
             if guild_id is None:
                 guild = 'Private Message'
             else:
-                guild = self.censor_object(self.bot.get_guild(guild_id) or f'<Unknown {guild_id}>')
+                guild = censor_object(self.bot.blacklist, self.bot.get_guild(guild_id) or f'<Unknown {guild_id}>')
 
             emoji = lookup[index]
-            value.append(f'{emoji}: {guild} (`{uses} `uses)')
+            value.append(f'{emoji}: {guild} (`{uses}` uses)')
 
         e.add_field(name='Top Guilds', value='\n'.join(value), inline=False)
 
-        query = """SELECT author_id, COUNT(*) AS "uses"
-                   FROM commands
-                   GROUP BY author_id
-                   ORDER BY 'uses' DESC
-                   LIMIT 5;
-                """
+        query = """
+            SELECT author_id, COUNT(*) AS "uses"
+            FROM commands
+            GROUP BY author_id
+            ORDER BY 'uses' DESC
+            LIMIT 5;
+        """
 
         records = await ctx.db.fetch(query)
         value = []
         for (index, (author_id, uses)) in enumerate(records):
-            user = self.censor_object(self.bot.get_user(author_id) or f'<Unknown {author_id}>')
+            user = censor_object(self.bot.blacklist, self.bot.get_user(author_id) or f'<Unknown {author_id}>')
             emoji = lookup[index]
             value.append(f'{emoji}: {user} (`{uses}` uses)')
 
         e.add_field(name='Top Users', value='\n'.join(value), inline=False)
         await ctx.send(embed=e)
 
-    @stats.command(name='today')
+    @commands.command(
+        stats.command,
+        name='today',
+        description='Global command statistics for the day.',
+    )
     @commands.is_owner()
     async def stats_today(self, ctx: Context):
         """Global command statistics for the day."""
@@ -617,7 +662,7 @@ class Stats(commands.Cog):
             else:
                 question += count
 
-        e = discord.Embed(title='Last 24 Hour Command Stats', colour=formats.Colour.teal())
+        e = discord.Embed(title='Last 24 Hour Command Stats', colour=helpers.Colour.darker_red())
         e.description = (
             f'`{failed + success + question}` commands used today. '
             f'(`{success}` succeeded, `{failed}` failed, `{question}` unknown)'
@@ -631,26 +676,28 @@ class Stats(commands.Cog):
             '\N{SPORTS MEDAL}',
         )
 
-        query = """SELECT command, COUNT(*) AS "uses"
-                   FROM commands
-                   WHERE used > (CURRENT_TIMESTAMP - INTERVAL '1 day')
-                   GROUP BY command
-                   ORDER BY 'uses' DESC
-                   LIMIT 5;
-                """
+        query = """
+            SELECT command, COUNT(*) AS "uses"
+            FROM commands
+            WHERE used > (CURRENT_TIMESTAMP - INTERVAL '1 day')
+            GROUP BY command
+            ORDER BY 'uses' DESC
+            LIMIT 5;
+        """
 
         records = await ctx.db.fetch(query)
         value = '\n'.join(
             f'{lookup[index]}: {command} (`{uses}` uses)' for (index, (command, uses)) in enumerate(records))
         e.add_field(name='Top Commands', value=value, inline=False)
 
-        query = """SELECT guild_id, COUNT(*) AS "uses"
-                   FROM commands
-                   WHERE used > (CURRENT_TIMESTAMP - INTERVAL '1 day')
-                   GROUP BY guild_id
-                   ORDER BY 'uses' DESC
-                   LIMIT 5;
-                """
+        query = """
+            SELECT guild_id, COUNT(*) AS "uses"
+            FROM commands
+            WHERE used > (CURRENT_TIMESTAMP - INTERVAL '1 day')
+            GROUP BY guild_id
+            ORDER BY 'uses' DESC
+            LIMIT 5;
+        """
 
         records = await ctx.db.fetch(query)
         value = []
@@ -658,26 +705,27 @@ class Stats(commands.Cog):
             if guild_id is None:
                 guild = 'Private Message'
             else:
-                guild = self.censor_object(self.bot.get_guild(guild_id) or f'<Unknown {guild_id}>')
+                guild = censor_object(self.bot.blacklist, self.bot.get_guild(guild_id) or f'<Unknown {guild_id}>')
             emoji = lookup[index]
             value.append(f'{emoji}: {guild} (`{uses}` uses)')
 
         e.add_field(name='Top Guilds', value='\n'.join(value), inline=False)
 
-        query = """SELECT author_id, COUNT(*) AS "uses"
-                   FROM commands
-                   WHERE used > (CURRENT_TIMESTAMP - INTERVAL '1 day')
-                   GROUP BY author_id
-                   ORDER BY 'uses' DESC
-                   LIMIT 5;
-                """
+        query = """
+            SELECT author_id, COUNT(*) AS "uses"
+            FROM commands
+            WHERE used > (CURRENT_TIMESTAMP - INTERVAL '1 day')
+            GROUP BY author_id
+            ORDER BY 'uses' DESC
+            LIMIT 5;
+        """
 
         records = await ctx.db.fetch(query)
         value = []
         for (index, (author_id, uses)) in enumerate(records):
-            user = self.censor_object(self.bot.get_user(author_id) or f'<Unknown {author_id}>')
+            user = censor_object(self.bot.blacklist, self.bot.get_user(author_id) or f'<Unknown {author_id}>')
             emoji = lookup[index]
-            value.append(f'{emoji}: {user} (`{uses}` uses)')
+            value.append(f'{emoji}: {user} ({uses} uses)')
 
         e.add_field(name='Top Users', value='\n'.join(value), inline=False)
         await ctx.send(embed=e)
@@ -692,14 +740,12 @@ class Stats(commands.Cog):
         total = guild.member_count or 1
         e.add_field(name='Members', value=str(total))
         e.add_field(name='Bots', value=f'{bots} ({bots / total:.2%})')
-
-        if guild.icon:
-            e.set_thumbnail(url=guild.icon.url)
+        e.set_thumbnail(url=get_asset_url(guild))
 
         if guild.me:
             e.timestamp = guild.me.joined_at
 
-        await self.webhook.send(embed=e)
+        await self.bot.stats_webhook.send(embed=e)
 
     @stats_today.before_invoke
     @stats_global.before_invoke
@@ -725,24 +771,28 @@ class Stats(commands.Cog):
             return
 
         error = error.original
-        if isinstance(error, (discord.Forbidden, discord.NotFound, menus.MenuError)):
+        if isinstance(error, (discord.Forbidden, discord.NotFound)):
             return
 
-        e = discord.Embed(title='Command Error', colour=0xCC3366)
+        e = discord.Embed(title='<:warning:1113421726861238363> Command Error', colour=0x99002b)
         e.add_field(name='Name', value=ctx.command.qualified_name)
-        e.add_field(name='Author', value=f'{ctx.author} (ID: {ctx.author.id})')
+        e.add_field(name='Author',
+                    value=f'[{ctx.author}](https://discord.com/users/{ctx.author.id}) (ID: {ctx.author.id})')
 
-        fmt = f'Channel: {ctx.channel} (ID: {ctx.channel.id})'
+        fmt = f'Channel: [#{ctx.channel}]({ctx.channel.jump_url}) (ID: {ctx.channel.id})'
         if ctx.guild:
             fmt = f'{fmt}\nGuild: {ctx.guild} (ID: {ctx.guild.id})'
+        else:
+            fmt = f'{fmt}\nGuild: *<Private Message>*'
 
         e.add_field(name='Location', value=fmt, inline=False)
-        e.add_field(name='Content', value=textwrap.shorten(ctx.message.content, width=512))
+        e.add_field(name='Content', value=textwrap.shorten(ctx.message.content, width=1024))
 
         exc = ''.join(traceback.format_exception(type(error), error, error.__traceback__, chain=False))
-        e.description = f'```py\n{exc}\n```'
+        e.description = f'### Retrieved Traceback\n```py\n{exc}\n```'
         e.timestamp = discord.utils.utcnow()
-        await self.webhook.send(embed=e)
+        e.set_footer(text='Occured at')
+        await self.bot.stats_webhook.send(embed=e)
 
     def add_record(self, record: logging.LogRecord) -> None:
         self._logging_queue.put_nowait(record)
@@ -751,8 +801,8 @@ class Stats(commands.Cog):
         attributes = {'INFO': '<:discord_info:1113421814132117545>', 'WARNING': '<:warning:1113421726861238363>'}
 
         emoji = attributes.get(record.levelname, '\N{CROSS MARK}')
-        dt = datetime.datetime.utcfromtimestamp(record.created)
-        msg = textwrap.shorten(f'{emoji} {formats.format_dt(dt, style='F')} {record.message}', width=1990)
+        dt = datetime.datetime.fromtimestamp(record.created, datetime.UTC)
+        msg = textwrap.shorten(f'{emoji} {discord.utils.format_dt(dt, style='F')} {record.message}', width=1990)
         if record.name == 'discord.gateway':
             username = 'Gateway'
             avatar_url = 'https://i.imgur.com/74UqM1Z.png'  # https://i.imgur.com/4PnCKB3.png
@@ -760,9 +810,10 @@ class Stats(commands.Cog):
             username = f'{record.name} Logger'
             avatar_url = discord.utils.MISSING
 
-        await self.webhook.send(msg, username=username, avatar_url=avatar_url)
+        await self.bot.stats_webhook.send(msg, username=username, avatar_url=avatar_url)
 
-    @commands.command(hidden=True)
+    # noinspection PyProtectedMember
+    @commands.command(commands.core_command, hidden=True)
     @commands.is_owner()
     async def bothealth(self, ctx: Context):
         """Various bot health monitoring tools."""
@@ -775,14 +826,13 @@ class Stats(commands.Cog):
         embed = discord.Embed(title='Bot Health Report', colour=HEALTHY)
 
         pool = self.bot.pool
-        total_waiting = len(pool._queue._getters)  # type: ignore
+        total_waiting = len(pool._queue._getters)
         current_generation = pool._generation
 
         description = [
-            f'Total Pool.acquire* Waiters: `{total_waiting}`',
-            f'Current Pool Generation: `{current_generation}`',
-            f'Connections In Use: `{len(pool._holders) - pool._queue.qsize()}`',
-        ]
+            f'Total `Pool.acquire` Waiters: {total_waiting}',
+            f'Current Pool Generation: {current_generation}',
+            f'Connections In Use: {len(pool._holders) - pool._queue.qsize()}']
 
         questionable_connections = 0
         connection_value = []
@@ -816,20 +866,19 @@ class Stats(commands.Cog):
 
         bad_inner_tasks = ', '.join(hex(id(t)) for t in inner_tasks if t.done() and t._exception is not None)
         total_warnings += bool(bad_inner_tasks)
-        embed.add_field(name='Inner Tasks', value=f'Total: `{len(inner_tasks)}`\nFailed: `{bad_inner_tasks or 'None'}`')
-        embed.add_field(name='Events Waiting', value=f'Total: `{len(event_tasks)}`', inline=False)
+        embed.add_field(name='Inner Tasks', value=f'Total: {len(inner_tasks)}\nFailed: {bad_inner_tasks or 'None'}')
+        embed.add_field(name='Events Waiting', value=f'Total: {len(event_tasks)}', inline=False)
 
         command_waiters = len(self._data_batch)
         is_locked = self._batch_lock.locked()
-        description.append(f'Commands Waiting: `{command_waiters}`, Batch Locked: `{is_locked}`')
+        description.append(f'Commands Waiting: {command_waiters}, Batch Locked: {is_locked}')
 
         memory_usage = self.process.memory_full_info().uss / 1024 ** 2
         cpu_usage = self.process.cpu_percent() / psutil.cpu_count()
-        embed.add_field(name='Process', value=f'Memory Usage: `{memory_usage:.2f} MiB`\nCPU Usage: `{cpu_usage:.2f}%`',
-                        inline=False)
+        embed.add_field(name='Process', value=f'{memory_usage:.2f} MiB\n{cpu_usage:.2f}% CPU', inline=False)
 
         global_rate_limit = not self.bot.http._global_over.is_set()
-        description.append(f'Global Rate Limit: `{global_rate_limit}`')
+        description.append(f'Global Rate Limit: {global_rate_limit}')
 
         if command_waiters >= 8:
             total_warnings += 1
@@ -842,7 +891,7 @@ class Stats(commands.Cog):
         embed.description = '\n'.join(description)
         await ctx.send(embed=embed)
 
-    @commands.command(hidden=True)
+    @commands.command(commands.core_command, hidden=True)
     @commands.is_owner()
     async def gateway(self, ctx: Context):
         """Gateway related stats."""
@@ -914,12 +963,12 @@ class Stats(commands.Cog):
         embed.set_footer(text=f'None warnings')
         await ctx.send(embed=embed)
 
-    @commands.command(hidden=True)
+    @commands.command(commands.core_command, hidden=True)
     @commands.is_owner()
     async def list_tasks(self, ctx: Context):
         """List all tasks."""
         tasks = asyncio.all_tasks(loop=self.bot.loop)
-        table = formats.AnsiTabularData()
+        table = formats.TabularData()
         table.set_columns(['Memory ID', 'Name', 'Object'])
 
         def strip_memory_id(s: str) -> str:
@@ -938,13 +987,17 @@ class Stats(commands.Cog):
         for page in pages.pages:
             await ctx.send(page)
 
-    @commands.command(hidden=True, aliases=['cancel_task'])
+    @commands.command(
+        commands.core_command,
+        hidden=True,
+        aliases=['cancel_task'],
+    )
     @commands.is_owner()
     async def debug_task(self, ctx: Context, memory_id: Annotated[int, hex_value]):
         """Debug a task by a memory location."""
         task = object_at(memory_id)
         if task is None or not isinstance(task, asyncio.Task):
-            return await ctx.send(f'Could not find Task object at {hex(memory_id)}.')
+            return await ctx.send(f'Could not find Task object at `{hex(memory_id)}`.')
 
         if ctx.invoked_with == 'cancel_task':
             task.cancel()
@@ -962,60 +1015,8 @@ class Stats(commands.Cog):
         for page in paginator.pages:
             await ctx.send(page)
 
-    @_commands.command(
-        commands.group,
-        name='command',
-        invoke_without_command=True,
-        hidden=True
-    )
-    @commands.is_owner()
-    async def _cmd(self, ctx: Context):
-        if ctx.invoked_subcommand is None:
-            await ctx.send_help(ctx.command)
-
-    @_commands.command(
-        _cmd.command,
-        name='stats',
-        hidden=True,
-        description='Command usage statistics related commands.',
-    )
-    @commands.is_owner()
-    async def command_stats(self, ctx: Context, *, limit: int = 12):
-        """Shows the current command usage statistics.
-        Note: Use a negative number for bottom instead of top.
-        """
-        counter = self.bot.command_stats
-        total = sum(counter.values())
-        slash_commands = self.bot.command_types_used[True]
-
-        delta = discord.utils.utcnow() - self.bot.launched_at
-        minutes = delta.total_seconds() / 60
-        cpm = total / minutes
-
-        if limit > 0:
-            common = counter.most_common(limit)
-            title = f'Top `{limit}` Commands'
-        else:
-            common = counter.most_common()[limit:]
-            title = f'Bottom `{limit}` Commands'
-
-        class FieldPaginator(BasePaginator):
-
-            async def format_page(self, entries: List, /) -> discord.Embed:
-                embed = discord.Embed(
-                    title=title,
-                    color=discord.Color.blurple(),
-                    description=f'**{total}** total commands used (**{slash_commands}** slash command uses) (`{cpm:.2f}/minute`)'
-                )
-
-                for entry in entries:
-                    embed.add_field(**entry)
-
-                return embed
-
-        await FieldPaginator.start(ctx, entries=[{'name': key, 'value': value} for key, value in common], per_page=12)
-
-    async def tabulate_query(self, ctx: Context, query: str, *args: Any):
+    @staticmethod
+    async def tabulate_query(ctx: Context, query: str, *args: Any):
         records = await ctx.db.fetch(query, *args)
 
         if len(records) == 0:
@@ -1030,7 +1031,7 @@ class Stats(commands.Cog):
         fp = io.BytesIO(render.strip().encode('utf-8'))
         await ctx.send('Too many results...', file=discord.File(fp, 'results.sql'))
 
-    @_commands.command(
+    @commands.command(
         _cmd.group,
         name='history',
         hidden=True,
@@ -1057,7 +1058,7 @@ class Stats(commands.Cog):
             """
             await self.tabulate_query(ctx, query)
 
-    @_commands.command(
+    @commands.command(
         command_history.command,
         name='for',
         hidden=True,
@@ -1082,10 +1083,9 @@ class Stats(commands.Cog):
                 ORDER BY 'total' DESC
                 LIMIT 30;
             """
-
             await self.tabulate_query(ctx, query, command, datetime.timedelta(days=days))
 
-    @_commands.command(
+    @commands.command(
         command_history.command,
         name='guild',
         hidden=True,
@@ -1112,7 +1112,7 @@ class Stats(commands.Cog):
             """
             await self.tabulate_query(ctx, query, guild_id)
 
-    @_commands.command(
+    @commands.command(
         command_history.command,
         name='user',
         hidden=True,
@@ -1138,7 +1138,7 @@ class Stats(commands.Cog):
             """
             await self.tabulate_query(ctx, query, user_id)
 
-    @_commands.command(
+    @commands.command(
         command_history.command,
         name='log',
         hidden=True,
@@ -1157,7 +1157,6 @@ class Stats(commands.Cog):
                 GROUP BY command
                 ORDER BY 2 DESC
             """
-
             all_commands = {c.qualified_name: 0 for c in self.bot.walk_commands()}
 
             records = await ctx.db.fetch(query, datetime.timedelta(days=days))
@@ -1188,7 +1187,7 @@ class Stats(commands.Cog):
             await ctx.send(embed=embed,
                            file=discord.File(io.BytesIO(render.encode()), filename='full_results.accesslog'))
 
-    @_commands.command(
+    @commands.command(
         command_history.command,
         name='cog',
         hidden=True,
@@ -1255,30 +1254,35 @@ class Stats(commands.Cog):
             await ctx.safe_send(f'```\n{render}\n```')
 
 
-old_on_error = commands.AutoShardedBot.on_error
+old_on_error = commands.Bot.on_error
 
 
-async def on_error(self, event: str, *args: Any, **kwargs: Any) -> None:
+async def on_error(self: RoboHashira, event: str, *args: Any, **kwargs: Any) -> None:
     (exc_type, exc, tb) = sys.exc_info()
     if isinstance(exc, commands.CommandInvokeError):
         return
 
-    e = discord.Embed(title='Event Error', colour=0xA32952)
+    # Check if there is a 'bypass_log' attribute in the exception object
+    if hasattr(exc, 'bypass_log'):
+        return
+
+    e = discord.Embed(title='<:warning:1113421726861238363> Event Error', colour=0x99002b)
     e.add_field(name='Event', value=event)
     trace = "".join(traceback.format_exception(exc_type, exc, tb))
-
     e.description = f'```py\n{trace}\n```'
     e.timestamp = discord.utils.utcnow()
+    e.set_footer(text='Occurred at')
 
     args_str = ['```py']
     for index, arg in enumerate(args):
         args_str.append(f'[{index}]: {arg!r}')
     args_str.append('```')
     e.add_field(name='Args', value='\n'.join(args_str), inline=False)
-    hook = self.get_cog('Stats').webhook
+    hook: discord.Webhook = self.stats_webhook
+
     try:
         await hook.send(embed=e)
-    except:
+    except (discord.HTTPException, ValueError):
         pass
 
 
@@ -1286,35 +1290,46 @@ async def on_app_command_error(interaction: discord.Interaction, error: discord.
     command = interaction.command
     error = getattr(error, 'original', error)
 
-    if isinstance(error, (discord.Forbidden, discord.NotFound, menus.MenuError)):
+    if isinstance(error, (discord.Forbidden, discord.NotFound)):
         return
 
-    hook = interaction.client.get_cog('Stats').webhook  # type: ignore
-    e = discord.Embed(title='App Command Error', colour=0xCC3366)
-
-    if command is not None:
-        if command._has_any_error_handlers():
+    # Check if there is a 'bypass_log' attribute in the exception object
+    if to_bypass := command.extras.get('bypass_error', None):
+        if isinstance(error, to_bypass):
             return
 
-        e.add_field(name='Name', value=command.qualified_name)
+    hook: discord.Webhook = interaction.client.stats_webhook
+    embed = discord.Embed(
+        title='<:warning:1113421726861238363> App Command Error', timestamp=interaction.created_at, colour=0x99002b)
 
-    e.add_field(name='User', value=f'{interaction.user} (ID: {interaction.user.id})')
+    if command is not None:
+        if command._has_any_error_handlers():  # noqa
+            return
 
-    fmt = f'Channel: {interaction.channel} (ID: {interaction.channel_id})'
+        embed.add_field(name='Name', value=command.qualified_name)
+
+    embed.add_field(
+        name='User',
+        value=f'[{interaction.user}](https://discord.com/users/{interaction.user.id}) (ID: {interaction.user.id})')
+
+    fmt = f'Channel: [#{interaction.channel}]({interaction.channel.jump_url}) (ID: {interaction.channel_id})'
     if interaction.guild:
         fmt = f'{fmt}\nGuild: {interaction.guild} (ID: {interaction.guild.id})'
+    else:
+        fmt = f'{fmt}\nGuild: *<Private Message>*'
 
-    e.add_field(name='Location', value=fmt, inline=False)
-    e.add_field(name='Namespace', value=' '.join(f'{k}: {v!r}' for k, v in interaction.namespace),  # noqa
-                inline=False)
+    embed.add_field(name='Location', value=fmt, inline=False)
+
+    namespace: dict = interaction.namespace.__dict__
+    embed.add_field(name='Namespace(s)', value=' '.join(f'{k}: {v!r}' for k, v in namespace.items()), inline=False)
 
     exc = ''.join(traceback.format_exception(type(error), error, error.__traceback__, chain=False))
-    e.description = f'```py\n{exc}\n```'
-    e.timestamp = interaction.created_at
+    embed.description = f'### Retrieved Traceback\n```py\n{exc}\n```'
+    embed.set_footer(text='Occured at')
 
     try:
-        await hook.send(embed=e)
-    except:
+        await hook.send(embed=embed)
+    except (discord.HTTPException, ValueError):
         pass
 
 
@@ -1328,17 +1343,18 @@ async def setup(bot: RoboHashira):
     if not hasattr(bot, 'command_types_used'):
         bot.command_types_used = Counter()
 
-    cog: Stats = Stats(bot)
+    cog = Stats(bot)
     await bot.add_cog(cog)
+
     bot.logging_handler = handler = LoggingHandler(cog)
-    logging.getLogger().addHandler(handler)
-    commands.AutoShardedBot.on_error = on_error
-    bot.old_tree_error = bot.tree.on_error  # type: ignore
+    get_logger().addHandler(handler)
+    commands.Bot.on_error = on_error
+    bot.old_tree_error = bot.tree.on_error
     bot.tree.on_error = on_app_command_error
 
 
 async def teardown(bot: RoboHashira):
-    commands.AutoShardedBot.on_error = old_on_error
-    logging.getLogger().removeHandler(bot.logging_handler)
-    bot.tree.on_error = bot.old_tree_error  # type: ignore
+    commands.Bot.on_error = old_on_error
+    get_logger().removeHandler(bot.logging_handler)
+    bot.tree.on_error = bot.old_tree_error
     del bot.logging_handler

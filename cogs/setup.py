@@ -1,13 +1,12 @@
 from __future__ import annotations
 from typing import Optional
 
-from discord.ext import commands
 import discord
 from discord import app_commands
 
 from .config import GuildConfig
 from .utils.context import Context
-from .utils import formats, _commands
+from .utils import helpers, commands
 from bot import RoboHashira
 
 
@@ -18,7 +17,7 @@ def preview_embed(guild: discord.Guild) -> discord.Embed:
                     f'You can start a new player session by invoking the </play:1079059790380142762> command.\n\n'
                     f'*Once you play a new track, this message is going to be the new player panel if it\'s not deleted, otherwise I\'m going to create a new panel.*',
         timestamp=discord.utils.utcnow(),
-        color=formats.Colour.teal())
+        color=helpers.Colour.teal())
     embed.set_footer(text='last updated')
     embed.set_thumbnail(url=guild.icon.url if not None else None)
     return embed
@@ -71,13 +70,13 @@ class Setup(commands.Cog):
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='staff_animated', id=1076911514193231974)
 
-    @_commands.command(
+    @commands.command(
         commands.hybrid_group,
         name='dj',
         description='Manage the DJ Role.',
         guild_only=True
     )
-    @_commands.permissions(user=['manage_roles'])
+    @commands.permissions(user=['manage_roles'])
     async def _dj(self, ctx: Context):
         """Manage the DJ Role.
         The bot and you both need to have the **Manage Roles** permission to use this command.
@@ -85,7 +84,7 @@ class Setup(commands.Cog):
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @_commands.command(
+    @commands.command(
         _dj.command,
         name='add',
         description='Adds the DJ Role with which you have extended control rights to a member.'
@@ -117,7 +116,7 @@ class Setup(commands.Cog):
         await member.add_roles(djRole)
         await ctx.stick(True, f'Added the {djRole.mention} role to user {member}.', ephemeral=True)
 
-    @_commands.command(
+    @commands.command(
         _dj.command,
         name='remove',
         description='Removes the DJ Role with which you have extended control rights from a member.'
@@ -150,14 +149,14 @@ class Setup(commands.Cog):
 
     # SETUP
 
-    @_commands.command(
+    @commands.command(
         commands.hybrid_group,
         name='setup',
         description='Start the Music configuration setup.',
         fallback='set',
         guild_only=True
     )
-    @_commands.permissions(user=['manage_channels'])
+    @commands.permissions(user=['manage_channels'])
     async def setup(self, ctx: Context, channel: Optional[discord.TextChannel] = None):
         """Start the Music configuration setup.
         To use this command the bot and you both need the **Manage Channels** permission.
@@ -193,7 +192,7 @@ class Setup(commands.Cog):
             config: GuildConfig = await self.bot.cfg.get_config(ctx.guild.id)
             await config.edit(music_channel=channel.id, music_message_id=message.id)
 
-    @_commands.command(
+    @commands.command(
         setup.command,
         name='reset',
         description='Reset the Music configuration setup.'

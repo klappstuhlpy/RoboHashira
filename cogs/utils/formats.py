@@ -1,31 +1,19 @@
 from __future__ import annotations
 
 import datetime
-
-from typing import Any, Iterable, Optional, Sequence, Self
+import re
+from typing import Any, Iterable, Optional, Sequence, Iterator, TypeVar, AsyncIterator, TYPE_CHECKING, Union
 
 import asyncpg
 import discord
+from discord.utils import TimestampStyle
 
-from cogs.utils import converters
+from cogs.utils.constants import INVITE_REGEX
 
+if TYPE_CHECKING:
+    from bot import Percy
 
-class MaybeAcquire:
-    def __init__(self, connection: Optional[asyncpg.Connection], *, pool: asyncpg.Pool) -> None:
-        self.connection: Optional[asyncpg.Connection] = connection
-        self.pool: asyncpg.Pool = pool
-        self._cleanup: bool = False
-
-    async def __aenter__(self) -> asyncpg.Connection:
-        if self.connection is None:
-            self._cleanup = True
-            self._connection = c = await self.pool.acquire()
-            return c
-        return self.connection
-
-    async def __aexit__(self, *args) -> None:
-        if self._cleanup:
-            await self.pool.release(self._connection)
+T = TypeVar('T')
 
 
 class plural:
@@ -50,7 +38,95 @@ class plural:
         return f'{s} {singular}'
 
 
+def censor_invite(obj: Any, *, _regex=INVITE_REGEX) -> str:
+    return _regex.sub('[censored-invite]', str(obj))
+
+
+def censor_object(blacklist: list[int] | Any, obj: str | discord.abc.Snowflake) -> str:
+    if not isinstance(obj, str) and obj.id in blacklist:
+        return '[censored]'
+    return censor_invite(obj)
+
+
+def valid_filename(sentence: str):
+    disallowed_chars_pattern = re.compile(r'[^\w.-]')
+    filename = sentence.replace(' ', '_')
+    return re.sub(disallowed_chars_pattern, '', filename)
+
+
+def betterget(obj: Any, attr: Union[str, Any], default: Any = None):
+    """Gets a nested attribute from a dictionary/object and formats the output accordingly.
+
+    Resolves, for example, isoformatted datetimes etc.
+    """
+
+    if isinstance(obj, dict):
+        obj = obj.get(attr, default)
+    else:
+        obj = getattr(obj, attr, default)
+
+    if isinstance(obj, str):
+        try:
+            dt_obj = datetime.datetime.fromisoformat(obj)
+        except (TypeError, ValueError):
+            pass
+        else:
+            return dt_obj.astimezone(datetime.timezone.utc)
+
+    return obj
+
+
+def medal_emojize(seq: Iterable):
+    """Yield tuples of (emoji, value) for each item in `seq`.
+    The emojis are unicode emojis of the form :first_place:, :second_place:, etc.
+
+    Note
+    ----
+    The maximum number of emojis is 3. (Otherwise, the emojis won't be medal emojis.)
+    """
+    emoji = 129351  # ord(':first_place:') # max 3
+    for index, value in enumerate(seq):
+        yield chr(emoji + index), value
+
+
+def find_nth_occurrence(string: str, substring: str, n: int) -> int | None:
+    """Return index of `n`th occurrence of `substring` in `string`, or None if not found."""
+    index = 0
+    for _ in range(n):
+        index = string.find(substring, index+1)
+        if index == -1:
+            return None
+    return index
+
+
+async def plonk_iterator(bot: Percy, guild: discord.Guild, records: list[asyncpg.Record]) -> AsyncIterator[str]:
+    for record in records:
+        entity_id = record[0]
+        resolved = guild.get_channel(entity_id) or await bot.get_or_fetch_member(guild, entity_id)
+        if resolved is None:
+            yield f'<Not Found: {entity_id}>'
+        yield str(resolved)
+
+
+def remove_html_tags(content: str) -> str:
+    clean_text = re.sub('<.*?>', '', content)  # Remove HTML tags
+    clean_text = re.sub(r'\s+', ' ', clean_text)  # Remove extra whitespace
+    return clean_text
+
+
 def readable_time(seconds: int | float, decimal: bool = False, short: bool = False) -> str:
+    """Returns a human-readable time format.
+
+    Parameters
+    ----------
+    seconds : `int` | `float`
+        The amount of seconds to convert.
+    decimal : `bool`, optional
+        Whether to round the values to 2 decimal places.
+    short : `bool`, optional
+        Whether to use short names for the units.
+    """
+
     hours, remainder = divmod(seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     days, hours = divmod(hours, 24)
@@ -76,6 +152,14 @@ def readable_time(seconds: int | float, decimal: bool = False, short: bool = Fal
 
 
 def shorten_number(number: int | float) -> str:
+    """Shortens a number to a more readable format.
+
+    Parameters
+    ----------
+    number : `int` | `float`
+        The number to shorten.
+    """
+
     number = float(f'{number:.3g}')
     magnitude = 0
 
@@ -86,56 +170,98 @@ def shorten_number(number: int | float) -> str:
     return f'{f'{number:f}'.rstrip('0').rstrip('.')}{['', 'K', 'M', 'B', 'T'][magnitude]}'
 
 
-class Colour(discord.Colour):
+def number_suffix(number: int):
+    """Returns the suffix for a number.
 
-    @classmethod
-    def darker_red(cls) -> Self:
-        return cls(0xE32636)
-
-    @classmethod
-    def transparent(cls) -> Self:
-        return cls(0x2F3136)
-
-    @classmethod
-    def lime_green(cls) -> Self:
-        return cls(0x3AFF76)
-
-    @classmethod
-    def light_red(cls) -> Self:
-        return cls(0xFF6666)
-
-    @classmethod
-    def light_orange(cls) -> Self:
-        return cls(0xFF8000)
-
-    @classmethod
-    def electric_violet(cls) -> Self:
-        return cls(0x9b00ff)
-
-    @classmethod
-    def teal(cls) -> Self:
-        return cls(0x1f5b87)
-
-
-def merge(rm_dup: bool = False, *lists) -> list:
+    Parameters
+    ----------
+    number : `int`
+        The number to get the suffix for.
     """
-    Merge two or more lists into one.
+    if 10 <= number % 100 <= 20:
+        suffix = 'th'
+    else:
+        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(number % 10, 'th')
 
-    Parameters:
-    rm_dup (bool): If True, remove duplicates from the merged list.
-    *lists: Lists to be merged.
+    return f'{number}{suffix}'
 
-    Returns:
-    Merged list.
+
+def pagify(
+        text: str,
+        delims: Sequence[str] = ['\n'],  # noqa
+        *,
+        priority: bool = False,
+        escape_mass_mentions: bool = True,
+        shorten_by: int = 8,
+        page_length: int = 2000,
+) -> Iterator[str]:
+    """Generate multiple pages from the given text.
+
+    Note
+    ----
+    This does not respect code blocks or inline code.
+
+    Parameters
+    ----------
+    text: str
+        The content to pagify and send.
+    delims: `sequence` of `str`, optional
+        Characters where page breaks will occur. If no delimiters are found
+        in a page, the page will break after ``page_length`` characters.
+        By default, this only contains the newline.
+
+    Other Parameters
+    ----------------
+    priority : `bool`
+        Set to :code:`True` to choose the page  break delimiter based on the
+        order of ``delims``. Otherwise, the page will always break at the
+        last possible delimiter.
+    escape_mass_mentions : `bool`
+        If :code:`True`, any mass mentions (here or everyone) will be
+        silenced.
+    shorten_by : `int`
+        How much to shorten each page by. Defaults to 8.
+    page_length : `int`
+        The maximum length of each page. Defaults to 2000.
+
+    Yields
+    ------
+    `str`
+        Pages of the given text.
+
     """
-    merged_list = []
-    for lst in lists:
-        if rm_dup:
-            merged_list.extend([i for i in lst if i not in merged_list])
+    page_length -= shorten_by
+    start = 0
+    end = len(text)
+    while (end - start) > page_length:
+        stop = start + page_length
+        if escape_mass_mentions:
+            stop -= text.count('@here', start, stop) + text.count('@everyone', start, stop)
+        closest_delim = (text.rfind(d, start + 1, stop) for d in delims)
+        if priority:
+            closest_delim = next((x for x in closest_delim if x > 0), -1)
         else:
-            merged_list.extend(lst)
+            closest_delim = max(closest_delim)
+        stop = closest_delim if closest_delim != -1 else stop
+        if escape_mass_mentions:
+            to_send = discord.utils.escape_mentions(text[start:stop])
+        else:
+            to_send = text[start:stop]
+        if len(to_send.strip()) > 0:
+            yield to_send
+        start = stop
 
-    return merged_list
+    if len(text[start:end].strip()) > 0:
+        if escape_mass_mentions:
+            yield discord.utils.escape_mentions(text[start:end])
+        else:
+            yield text[start:end]
+
+
+def format_date(dt: Optional[datetime.datetime], style: TimestampStyle = 'f') -> str:
+    if dt is None:
+        return 'N/A'
+    return f'{discord.utils.format_dt(dt, style)} ({discord.utils.format_dt(dt, style='R')})'
 
 
 def human_join(seq: Sequence[str], delim: str = ', ', final: str = 'or') -> str:
@@ -204,71 +330,22 @@ class TabularData:
         return '\n'.join(to_draw)
 
 
-class AnsiTabularData(TabularData):
-    def __init__(self):
-        super().__init__()
-        self._widths: list[int] = []
-        self._columns: list[str] = []
-        self._rows: list[list[str]] = []
-
-    def render(self) -> str:
-        """Renders a table in rST format.
-        ( ANSI color formatted )
-        Example:
-        +-------+-----+
-        | Name  | Age |
-        +-------+-----+
-        | Alice | 24  |
-        |  Bob  | 19  |
-        +-------+-----+
-        """
-
-        sep = '+'.join('-' * w for w in self._widths)
-        sep = f'+{sep}+'
-
-        to_draw = ['```ansi', sep]
-
-        def get_entry(d):
-            elem = '|'.join(f'\u001b[0;40m{e:^{self._widths[i]}}\u001b[0;0m' for i, e in enumerate(d))
-            return f'|{elem}|'
-
-        def get_row_entry(d):
-            elem = '|'.join(f'\u001b[0;34m{e:^{self._widths[i]}}\u001b[0;0m' for i, e in enumerate(d))
-            return f'|{elem}|'
-
-        to_draw.append(get_entry(self._columns))
-        to_draw.append(sep)
-
-        for row in self._rows:
-            to_draw.append(get_row_entry(row))
-
-        to_draw.append(sep)
-        to_draw.append('```')
-        return '\n'.join(to_draw)
-
-
-def format_dt(dt: datetime.datetime, style: Optional[str] = None) -> str:
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=datetime.timezone.utc)
-
-    if style is None:
-        return f'<t:{int(dt.timestamp())}>'
-    return f'<t:{int(dt.timestamp())}:{style}>'
-
-
 def truncate(text: str, length: int) -> str:
+    """Truncate a string to a certain length, adding an ellipsis if it was truncated."""
     if len(text) > length:
         return text[:length - 1] + '…'
     return text
 
 
 def truncate_iterable(iterable: Iterable[Any], length: int, attribute: str = None) -> str:
+    """Truncate an iterable to a certain length, adding an ellipsis if it was truncated."""
     if len(iterable) > length:  # type: ignore
         return ', '.join(iterable[:length]) + ', …'
     return ', '.join(iterable)
 
 
 def WrapList(list_: list, length: int):
+    """Wrap a list into sublists of a certain length."""
     def chunks(seq, size):
         for i in range(0, len(seq), size):
             yield seq[i: i + size]
@@ -276,7 +353,30 @@ def WrapList(list_: list, length: int):
     return list(chunks(list_, length))
 
 
+def WrapDict(dict_: dict, length: int):
+    """Wrap a dict into subdicts of a certain length."""
+    def chunks(seq, size):
+        for i in range(0, len(seq), size):
+            yield {k: seq[k] for k in list(seq)[i: i + size]}
+
+    return list(chunks(dict_, length))
+
+
 def get_shortened_string(length: int, start: int, string: str) -> str:
+    """Shorten a string to a certain length, adding an ellipsis if it was shortened.
+
+    Needs to be compined with the :func:`fuzzy.finder` function.
+
+    Parameters
+    ----------
+    length : `int`
+        The maximum length of the string.
+    start : `int`
+        The start index of the string.
+    string : `str`
+        The string to shorten.
+    """
+
     full_length = len(string)
     if full_length <= 100:
         return string
@@ -299,10 +399,3 @@ def get_shortened_string(length: int, start: int, string: str) -> str:
     if has_end:
         return f'[{_id}] …{string[start + excess + 1:end]}…'
     return f'[{_id}] …{string[start + excess:end]}'
-
-
-def player_stamp(length: float, position: float) -> str:
-    convertable = [converters.convert_duration(position if not position < 0 else 0.0),
-                   converters.VisualStamp(0, length, position),
-                   converters.convert_duration(length)]
-    return ' '.join(convertable)

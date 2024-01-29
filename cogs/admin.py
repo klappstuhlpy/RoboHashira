@@ -1,7 +1,6 @@
 import asyncio
 import copy
 import io
-import logging
 import os
 import shutil
 import subprocess
@@ -16,12 +15,13 @@ from asyncpg import Record
 from discord.ext import commands
 from contextlib import redirect_stdout
 
-from .utils import formats, constants, _commands, context
+from launcher import get_logger
+from .utils import constants, commands, context, helpers
 from .utils.context import Context
 from bot import RoboHashira
 from .utils.paginator import BasePaginator, TextSource
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 
 class PerformanceMocker:
@@ -49,7 +49,7 @@ class PerformanceMocker:
 
     def __await__(self):
         future: asyncio.Future[Self] = self.loop.create_future()
-        future.set_result(self)
+        future.set_result(self[PerformanceMocker])
         return future.__await__()
 
     async def __aenter__(self) -> Self:
@@ -101,7 +101,7 @@ class Admin(commands.Cog):
     async def cog_check(self, ctx: Context) -> bool:
         return await self.bot.is_owner(ctx.author)
 
-    @_commands.command(commands.command, hidden=True)
+    @commands.command(commands.core_command, hidden=True)
     async def syncrepo(self, ctx: Context):
         try:
             path = os.path.join(constants.BOT_BASE_FOLDER, '/rendering/repo/')
@@ -117,7 +117,7 @@ class Admin(commands.Cog):
         finally:
             await ctx.stick(True)
 
-    @_commands.command(commands.command, hidden=True)
+    @commands.command(commands.core_command, hidden=True)
     async def maintenance(self, ctx: Context):
         if self.bot.maintenance.get('maintenance') is True:
             await self.bot.maintenance.put('maintenance', False)
@@ -129,7 +129,7 @@ class Admin(commands.Cog):
             await ctx.send('<:greenTick:1079249732364406854> Maintenance mode enabled.', ephemeral=True)
             await self.bot.change_presence(activity=discord.Activity(type=discord.ActivityType.listening, name='🛠️ Maintenance Mode'))
 
-    @_commands.command(commands.command, hidden=True, name='eval')
+    @commands.command(commands.core_command, hidden=True, name='eval')
     async def _eval(self, ctx: Context, *, body: str):
         """Evaluates a code"""
 
@@ -177,7 +177,7 @@ class Admin(commands.Cog):
                 self._last_result = ret
                 await ctx.send(f'```py\n{value}{ret}\n```')
 
-    @_commands.command(commands.command, hidden=True,
+    @commands.command(commands.core_command, hidden=True,
                       description='Checks the timing of a command, attempting to suppress HTTP and DB calls.')
     async def perf(self, ctx: Context, *, command: str):
         """Checks the timing of a command, attempting to suppress HTTP and DB calls."""
@@ -209,7 +209,7 @@ class Admin(commands.Cog):
 
             await ctx.send(embed=discord.Embed(
                 description=f'Status: {context.tick(success)} Time: `{(end - start) * 1000:.2f}ms`',
-                color=formats.Colour.teal()))
+                color=helpers.Colour.teal()))
         except Exception as e:
             traceback.print_exc()
 
@@ -230,7 +230,7 @@ class Admin(commands.Cog):
             fmt = f'```sql\n{render}\n```'
             await ctx.send(fmt)
 
-    @_commands.command(
+    @commands.command(
         commands.group,
         hidden=True,
         invoke_without_command=True,
@@ -276,7 +276,7 @@ class Admin(commands.Cog):
             fmt = f'```sql\n{render}\n```\n*Returned {plural(rows):row} in {dt:.2f}ms*'
             await ctx.send(fmt)
 
-    @_commands.command(
+    @commands.command(
         sql.command,
         name='schema',
         hidden=True
@@ -298,7 +298,7 @@ class Admin(commands.Cog):
 
         await self.send_sql_results(ctx, results)
 
-    @_commands.command(
+    @commands.command(
         sql.command,
         name='tables',
         hidden=True
@@ -321,7 +321,7 @@ class Admin(commands.Cog):
 
         await self.send_sql_results(ctx, results)
 
-    @_commands.command(
+    @commands.command(
         sql.command,
         name='sizes',
         hidden=True
@@ -347,7 +347,7 @@ class Admin(commands.Cog):
 
         await self.send_sql_results(ctx, results)
 
-    @_commands.command(sql.command, name='explain', aliases=['analyze'], hidden=True)
+    @commands.command(sql.command, name='explain', aliases=['analyze'], hidden=True)
     async def sql_explain(self, ctx: Context, *, query: str):
         """Explain an SQL query."""
         query = self.cleanup_code(query)
@@ -364,7 +364,7 @@ class Admin(commands.Cog):
         file = discord.File(io.BytesIO(json[0].encode('utf-8')), filename='explain.json')
         await ctx.send(file=file)
 
-    @_commands.command(commands.command, hidden=True)
+    @commands.command(commands.core_command, hidden=True)
     async def sudo(
             self,
             ctx: Context,
@@ -382,7 +382,7 @@ class Admin(commands.Cog):
         new_ctx = await self.bot.get_context(msg, cls=type(ctx))
         await self.bot.invoke(new_ctx)
 
-    @_commands.command(commands.command, hidden=True)
+    @commands.command(commands.core_command, hidden=True)
     async def do(self, ctx: Context, times: int, *, command: str):
         """Repeats a command a specified number of times."""
         msg = copy.copy(ctx.message)
@@ -393,7 +393,7 @@ class Admin(commands.Cog):
         for i in range(times):
             await new_ctx.reinvoke()
 
-    @_commands.command(commands.command, hidden=True)
+    @commands.command(commands.core_command, hidden=True)
     async def sh(self, ctx: Context, *, command: str):
         """Runs a shell command."""
         async with ctx.typing():
@@ -415,7 +415,7 @@ class Admin(commands.Cog):
 
         await TextPaginator.start(ctx, entries=source.pages, timeout=60, per_page=1)
 
-    @_commands.command(commands.command, hidden=True)
+    @commands.command(commands.core_command, hidden=True)
     async def perf(self, ctx: Context, *, command: str):
         """Checks the timing of a command, attempting to suppress HTTP and DB calls."""
 

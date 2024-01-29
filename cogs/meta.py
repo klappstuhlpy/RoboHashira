@@ -9,10 +9,9 @@ import discord
 from discord import app_commands
 from jishaku.math import mean_stddev
 
-from .utils import fuzzy, formats, _commands
-from discord.ext import commands
+from .utils import fuzzy, helpers, commands
 
-from .utils._commands import PermissionTemplate
+from .utils.commands import PermissionTemplate
 from .utils.context import Context, GuildContext
 from .utils.converters import Prefix
 from cogs.utils.paginator import BasePaginator
@@ -38,7 +37,7 @@ class GroupHelpPaginator(BasePaginator):
         emoji = getattr(self.group, 'display_emoji', None) or ''
         embed = discord.Embed(title=f'{emoji} {self.group.qualified_name} Commands',
                               description=self.group.description,
-                              colour=formats.Colour.teal())
+                              colour=helpers.Colour.teal())
 
         is_app_command_cog = False
         if isinstance(self.group, commands.Cog):
@@ -162,7 +161,7 @@ class FrontHelpPaginator(BasePaginator):
     groups: dict[commands.Cog, list[commands.Command], list[app_commands.AppCommand]]
 
     async def format_page(self, entries: Dict, /):
-        embed = discord.Embed(title=f'{self.ctx.client.user.name}\'s Help Page', colour=formats.Colour.teal())
+        embed = discord.Embed(title=f'{self.ctx.client.user.name}\'s Help Page', colour=helpers.Colour.teal())
         embed.set_thumbnail(url=self.ctx.client.user.avatar.url)
         pref = '/' if isinstance(self.ctx, discord.Interaction) else self.ctx.clean_prefix
         embed.description = inspect.cleandoc(
@@ -454,7 +453,7 @@ class PaginatedHelpCommand(commands.HelpCommand):
         if not isinstance(command, app_commands.commands.Command):
             if command.hidden and not await self.context.bot.is_owner(self.context.author):
                 return await self.context.send(f'No Command called {command!r} found.')
-        embed = discord.Embed(colour=formats.Colour.teal())
+        embed = discord.Embed(colour=helpers.Colour.teal())
         self.common_command_formatting(embed, command)
         await self.context.send(embed=embed, silent=True)
 
@@ -553,7 +552,7 @@ class Meta(commands.Cog):
     def get_feedback_embed(
             obj: Context | discord.Interaction, *, summary: str, details: Optional[str] = None
     ) -> discord.Embed:
-        e = discord.Embed(title='Feedback', color=formats.Colour.teal())
+        e = discord.Embed(title='Feedback', color=helpers.Colour.teal())
 
         if details is not None:
             e.description = details
@@ -578,7 +577,7 @@ class Meta(commands.Cog):
         e.set_footer(text=f'Author ID: {user.id}')
         return e
 
-    @_commands.command(commands.command)
+    @commands.command(commands.command)
     @commands.cooldown(rate=1, per=60.0, type=commands.BucketType.user)
     async def feedback(self, ctx: Context, *, content: str):
         """Sends feedback about the bot to the owner.
@@ -597,13 +596,13 @@ class Meta(commands.Cog):
         await channel.send(embed=e)
         await ctx.stick(True, 'Successfully sent feedback')
 
-    @_commands.command(app_commands.command, name='feedback')
+    @commands.command(app_commands.command, name='feedback')
     async def feedback_slash(self, interaction: discord.Interaction):
         """Sends feedback about the bot to the owner."""
 
         await interaction.response.send_modal(FeedbackModal(self))
 
-    @_commands.command(commands.command)
+    @commands.command(commands.command)
     @commands.is_owner()
     async def pm(self, ctx: Context, user_id: int, *, content: str):
         """Sends a DM to a user by ID."""
@@ -620,7 +619,7 @@ class Meta(commands.Cog):
         else:
             await ctx.stick(True, 'PM successfully sent.')
 
-    @_commands.command(app_commands.command, name='help', guild_only=True)
+    @commands.command(app_commands.command, name='help', guild_only=True)
     @app_commands.describe(module='Get help for a module.',
                            command='Get help for a command')
     async def _help(self, interaction: discord.Interaction, module: Optional[str] = None, command: Optional[str] = None):
@@ -659,7 +658,7 @@ class Meta(commands.Cog):
         results = fuzzy.finder(current, [c.qualified_name for c in cogs])
         return [app_commands.Choice(name=res, value=res) for res in results][:25]
 
-    @_commands.command(commands.group, name='prefix', invoke_without_command=True)
+    @commands.command(commands.group, name='prefix', invoke_without_command=True)
     async def _prefix(self, ctx: Context):
         """Manages the server's custom prefixes.
         If called without a subcommand, this will list the currently set
@@ -677,8 +676,8 @@ class Meta(commands.Cog):
         e.description = '\n'.join(f'{index}. {elem}' for index, elem in enumerate(prefixes, 1))
         await ctx.send(embed=e)
 
-    @_commands.command(_prefix.command, name='add', ignore_extra=False)
-    @_commands.permissions(user=PermissionTemplate.manager)
+    @commands.command(_prefix.command, name='add', ignore_extra=False)
+    @commands.permissions(user=PermissionTemplate.manager)
     async def _prefix_add(self, ctx: GuildContext, prefix: Annotated[str, Prefix]):
         """Appends a prefix to the list of custom prefixes.
         Previously set prefixes are not overridden.
@@ -699,8 +698,8 @@ class Meta(commands.Cog):
         else:
             await ctx.stick(True, 'Prefix added.')
 
-    @_commands.command(_prefix.command, name='remove', aliases=['delete'], ignore_extra=False)
-    @_commands.permissions(user=PermissionTemplate.manager)
+    @commands.command(_prefix.command, name='remove', aliases=['delete'], ignore_extra=False)
+    @commands.permissions(user=PermissionTemplate.manager)
     async def _prefix_remove(self, ctx: GuildContext, prefix: Annotated[str, Prefix]):
         """Removes a prefix from the list of custom prefixes.
         This is the inverse of the 'prefix add' command. You can
@@ -722,8 +721,8 @@ class Meta(commands.Cog):
         else:
             await ctx.stick(True, 'Prefix removed.')
 
-    @_commands.command(_prefix.command, name='clear')
-    @_commands.permissions(user=PermissionTemplate.manager)
+    @commands.command(_prefix.command, name='clear')
+    @commands.permissions(user=PermissionTemplate.manager)
     async def _prefix_clear(self, ctx: GuildContext):
         """Removes all custom prefixes.
         After this, the bot will listen to only mention prefixes.
@@ -733,7 +732,7 @@ class Meta(commands.Cog):
         await self.bot.set_guild_prefixes(ctx.guild, [])
         await ctx.stick(True, 'Cleared all prefixes.')
 
-    @_commands.command(name='ping', description='Get the bots latency.')
+    @commands.command(name='ping', description='Get the bots latency.')
     async def ping(self, ctx: Context):
         """Shows some Client and API latency information."""
 
@@ -775,7 +774,7 @@ class Meta(commands.Cog):
                 before = time.perf_counter()
                 await message.edit(embed=discord.Embed(title='Pong!...',
                                                              description=text,
-                                                             color=formats.Colour.teal()))
+                                                             color=helpers.Colour.teal()))
                 after = time.perf_counter()
 
                 api_readings.append(after - before)
@@ -783,7 +782,7 @@ class Meta(commands.Cog):
                 before = time.perf_counter()
                 message = await ctx.send(embed=discord.Embed(title='Pong!...',
                                                              description=text,
-                                                             color=formats.Colour.teal()))
+                                                             color=helpers.Colour.teal()))
                 after = time.perf_counter()
 
                 api_readings.append(after - before)
@@ -791,7 +790,7 @@ class Meta(commands.Cog):
             if self.bot.latency > 0.0:
                 websocket_readings.append(self.bot.latency)
 
-    @_commands.command(name='vote', description='Shows current available vote links')
+    @commands.command(name='vote', description='Shows current available vote links')
     async def vote(self, ctx: Context):
         """Shows current available vote links for the bot."""
         embed = discord.Embed(title='Vote',
@@ -803,7 +802,7 @@ class Meta(commands.Cog):
         embed.set_thumbnail(url=self.bot.user.avatar.url)
         await ctx.send(embed=embed)
 
-    @_commands.command(aliases=['invite'])
+    @commands.command(aliases=['invite'])
     async def join(self, ctx: Context):
         """Posts my invite to allow you to invite me"""
         perms = discord.Permissions.none()

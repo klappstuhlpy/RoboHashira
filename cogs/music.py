@@ -8,11 +8,13 @@ import discord
 import wavelink
 from discord import app_commands
 
-from discord.ext import commands, tasks
+from discord.ext import tasks
 from discord.ext.commands._types import BotT  # noqa
+from wavelink import DiscordVoiceCloseType
 
+from launcher import get_logger
 from .utils.context import Context
-from .utils import checks, converters, formats, errors, _commands
+from .utils import checks, converters, helpers, errors, commands
 from .utils.render import Render
 from cogs.utils.player import Player, PlayingState, PlayerPanel
 from bot import RoboHashira
@@ -21,7 +23,7 @@ from cogs.utils.paginator import BasePaginator
 if TYPE_CHECKING:
     from .playlist import PlaylistTools
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 
 class PlayFlags(commands.FlagConverter):
@@ -93,7 +95,9 @@ class Music(commands.Cog):
     ):
         # Handles all wavelink errors
         if isinstance(payload, wavelink.WebsocketClosedEventPayload):
-            if payload.code == 1000:  # Indicates the Websocket was closed normally (no error)
+            if payload.code == DiscordVoiceCloseType.CLOSE_NORMAL:
+                return
+            if payload.code == DiscordVoiceCloseType.DISCONNECTED:
                 return
 
         player: Player | None = cast(Player, payload.player)
@@ -212,7 +216,7 @@ class Music(commands.Cog):
             await player.pause(True)
             await player.view.channel.send(
                 '<a:loading:1072682806360166430> The Host has paused/stopped listening to Spotify.\n'
-                f'*Destroying the session {formats.format_dt(datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=22), style='R')} if the host doesn\'t start listening again.*',
+                f'*Destroying the session {discord.utils.format_dt(datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=22), style='R')} if the host doesn\'t start listening again.*',
                 delete_after=21)
 
             timer = 0
@@ -270,7 +274,7 @@ class Music(commands.Cog):
         await player.view.fetch_player_channel(ctx.channel)
         return player
 
-    @_commands.command(
+    @commands.command(
         description='Adds a track/playlist to the queue and play the next available track.',
         guild_only=True
     )
@@ -337,7 +341,7 @@ class Music(commands.Cog):
             embed = discord.Embed(title='Playlist Enqueued',
                                   description=f'`🎶` Enqueued successfully **{added}** tracks from [{result.name}]({result.url}).\n'
                                               f'`🎵` *Next Track at Position **#{before_count + 1}/{len(player.queue.all)}***',
-                                  color=formats.Colour.teal())
+                                  color=helpers.Colour.teal())
             if result.artwork:
                 embed.set_thumbnail(url=result.artwork)
             embed.set_footer(text=f'Requested by: {ctx.author}', icon_url=ctx.author.display_avatar.url)
@@ -361,7 +365,7 @@ class Music(commands.Cog):
     listen_together = app_commands.Group(name='listen-together',
                                          description='Listen-together related commands.')
 
-    @_commands.command(
+    @commands.command(
         listen_together.command,
         name='start',
         description='Start a listen-together activity with a user.',
@@ -413,7 +417,7 @@ class Music(commands.Cog):
 
         await player.send_track_add(track, interaction)
 
-    @_commands.command(
+    @commands.command(
         listen_together.command,
         name='stop',
         description='Stops the current listen-together activity.',
@@ -436,7 +440,7 @@ class Music(commands.Cog):
                 '<:redTick:1079249771975413910> There is currently no listen-together activity started.',
                 ephemeral=True, delete_after=10)
 
-    @_commands.command(name='connect', description='Connect me to a voice-channel.', guild_only=True)
+    @commands.command(name='connect', description='Connect me to a voice-channel.', guild_only=True)
     @app_commands.describe(channel='The Voice/Stage-Channel you want to connect to.')
     async def connect(self, ctx: Context, channel: Union[discord.VoiceChannel, discord.StageChannel] = None):
         """Connect me to a voice-channel."""
@@ -453,7 +457,7 @@ class Music(commands.Cog):
         await self.join(ctx)
         await ctx.stick(True, f'Connected and bound to {channel.mention}', delete_after=10)
 
-    @_commands.command(description='Disconnect me from a voice-channel.', guild_only=True)
+    @commands.command(description='Disconnect me from a voice-channel.', guild_only=True)
     @checks.is_author_connected()
     @checks.is_player_connected()
     async def leave(self, ctx: Context):
@@ -466,7 +470,7 @@ class Music(commands.Cog):
         await player.disconnect()
         await ctx.stick(True, 'Disconnected Channel and cleaned up the queue.', delete_after=10)
 
-    @_commands.command(name='stop', description='Clears the queue and stop the current plugins.', guild_only=True)
+    @commands.command(name='stop', description='Clears the queue and stop the current plugins.', guild_only=True)
     @checks.is_author_connected()
     @checks.is_player_playing()
     async def stop(self, ctx: Context):
@@ -479,7 +483,7 @@ class Music(commands.Cog):
         await player.disconnect()
         await ctx.stick(True, 'Stopped Track and cleaned up queue.', delete_after=10)
 
-    @_commands.command(
+    @commands.command(
         name='toggle',
         aliases=['pause', 'resume'],
         description='Pause/Resume the current track.',
@@ -499,7 +503,7 @@ class Music(commands.Cog):
                         delete_after=10, suppress_embeds=True)
         await player.view.update()
 
-    @_commands.command(description='Sets a loop mode for the plugins.', guild_only=True)
+    @commands.command(description='Sets a loop mode for the plugins.', guild_only=True)
     @app_commands.describe(mode='Select a loop mode.')
     @checks.is_author_connected()
     @checks.is_player_playing()
@@ -520,7 +524,7 @@ class Music(commands.Cog):
         await player.view.update()
         await ctx.stick(True, f'Loop Mode changed to `{mode}`', delete_after=10)
 
-    @_commands.command(description='Sets the shuffle mode for the plugins.', guild_only=True)
+    @commands.command(description='Sets the shuffle mode for the plugins.', guild_only=True)
     @app_commands.describe(mode='Select a shuffle mode.')
     @checks.is_author_connected()
     @checks.is_player_playing()
@@ -535,7 +539,7 @@ class Music(commands.Cog):
         await player.view.update()
         await ctx.stick(True, f'Shuffle Mode changed to `{mode}`', delete_after=10)
 
-    @_commands.command(description='Seek to a specific position in the tack.', guild_only=True)
+    @commands.command(description='Seek to a specific position in the tack.', guild_only=True)
     @app_commands.describe(position='The position to seek to. (Format: HH:MM:SS)')
     @checks.is_author_connected()
     @checks.is_player_playing()
@@ -589,7 +593,7 @@ class Music(commands.Cog):
             value=datetime.datetime.fromtimestamp(int(seconds), datetime.UTC).strftime('%H:%M:%S'))]
         return to_return
 
-    @_commands.command(description='Set the volume for the plugins.', guild_only=True)
+    @commands.command(description='Set the volume for the plugins.', guild_only=True)
     @app_commands.describe(amount='The volume to set the plugins to. (0-100)')
     @checks.is_author_connected()
     @checks.is_player_playing()
@@ -600,7 +604,7 @@ class Music(commands.Cog):
             return
 
         if amount is None:
-            embed = discord.Embed(title=f'Current Volume', color=formats.Colour.teal())
+            embed = discord.Embed(title=f'Current Volume', color=helpers.Colour.teal())
             embed.add_field(name=f'Volume:',
                             value=f'```swift\n{converters.VisualStamp(0, 100, player.volume)} [ {player.volume}% ]```',
                             inline=False)
@@ -639,14 +643,14 @@ class Music(commands.Cog):
         await player.set_volume(format_vol(amount))
         await player.view.update()
 
-        embed = discord.Embed(title=f'Changed Volume', color=formats.Colour.teal(),
+        embed = discord.Embed(title=f'Changed Volume', color=helpers.Colour.teal(),
                               description='*It may takes a while for the changes to apply.*')
         embed.add_field(name=f'Volume:',
                         value=f'```swift\n{converters.VisualStamp(0, 100, player.volume)} [ {player.volume}% ]```',
                         inline=False)
         await ctx.send(embed=embed, delete_after=10)
 
-    @_commands.command(description='Removes all songs from users that are not in the voice channel.', guild_only=True)
+    @commands.command(description='Removes all songs from users that are not in the voice channel.', guild_only=True)
     @checks.is_author_connected()
     @checks.is_player_playing()
     async def leftcleanup(self, ctx: Context):
@@ -659,7 +663,7 @@ class Music(commands.Cog):
         await player.view.update()
         await ctx.stick(True, 'Cleaned up the queue.', delete_after=10)
 
-    @_commands.command(
+    @commands.command(
         commands.hybrid_group,
         description='Manage Advanced Filters to specify you listening experience.',
         guild_only=True
@@ -670,7 +674,7 @@ class Music(commands.Cog):
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @_commands.command(filter.command, name='equalizer', description='Set the equalizer for the current Track.')
+    @commands.command(filter.command, name='equalizer', description='Set the equalizer for the current Track.')
     @app_commands.describe(band='The Band you want to change. (1-15)',
                            gain='The Gain you want to set. (-0.25-+1.0')
     @checks.is_author_connected()
@@ -707,7 +711,7 @@ class Music(commands.Cog):
         filters.equalizer.set(bands=[dicT for dicT in eq.values()])
         await player.set_filters(filters)
 
-        embed = discord.Embed(title=f'Changed Filter', color=formats.Colour.teal(),
+        embed = discord.Embed(title=f'Changed Filter', color=helpers.Colour.teal(),
                               description='*It may takes a while for the changes to apply.*')
         file = discord.File(
             fp=self.render.generate_eq_image([entry['gain'] for entry in filters.equalizer.payload.values()]),
@@ -716,7 +720,7 @@ class Music(commands.Cog):
         embed.set_footer(text=f'Requested by: {ctx.author}')
         await ctx.send(embed=embed, file=file, delete_after=20)
 
-    @_commands.command(filter.command, name='bassboost', description='Enable/Disable the bassboost filter.')
+    @commands.command(filter.command, name='bassboost', description='Enable/Disable the bassboost filter.')
     @checks.is_author_connected()
     @checks.is_player_playing()
     async def filter_bassboost(self, ctx: Context):
@@ -740,7 +744,7 @@ class Music(commands.Cog):
         ])
         await player.set_filters(filters)
 
-        embed = discord.Embed(title=f'Changed Filter', color=formats.Colour.teal(),
+        embed = discord.Embed(title=f'Changed Filter', color=helpers.Colour.teal(),
                               description='*It may takes a while for the changes to apply.*')
         file = discord.File(
             fp=self.render.generate_eq_image([entry['gain'] for entry in filters.equalizer.payload.values()]),
@@ -749,7 +753,7 @@ class Music(commands.Cog):
         embed.set_footer(text=f'Requested by: {ctx.author}')
         await ctx.send(embed=embed, file=file, delete_after=20)
 
-    @_commands.command(filter.command, name='nightcore', description='Enables/Disables the nightcore filter.')
+    @commands.command(filter.command, name='nightcore', description='Enables/Disables the nightcore filter.')
     @checks.is_author_connected()
     @checks.is_player_playing()
     async def filter_nightcore(self, ctx: Context):
@@ -762,11 +766,11 @@ class Music(commands.Cog):
         filters.timescale.set(speed=1.25, pitch=1.3, rate=1.3)
         await player.set_filters(filters)
 
-        embed = discord.Embed(title=f'Changed Filter', color=formats.Colour.teal(),
+        embed = discord.Embed(title=f'Changed Filter', color=helpers.Colour.teal(),
                               description='*It may takes a while for the changes to apply.*')
         await ctx.send(embed=embed, delete_after=10)
 
-    @_commands.command(filter.command, name='8d', description='Enable/Disable the 8d filter.')
+    @commands.command(filter.command, name='8d', description='Enable/Disable the 8d filter.')
     @checks.is_author_connected()
     @checks.is_player_playing()
     async def filter_8d(self, ctx: Context):
@@ -779,11 +783,11 @@ class Music(commands.Cog):
         filters.rotation.set(rotation_hz=0.15)
         await player.set_filters(filters)
 
-        embed = discord.Embed(title=f'Changed Filter', color=formats.Colour.teal(),
+        embed = discord.Embed(title=f'Changed Filter', color=helpers.Colour.teal(),
                               description='*It may takes a while for the changes to apply.*')
         await ctx.send(embed=embed, delete_after=10)
 
-    @_commands.command(
+    @commands.command(
         filter.command,
         name='lowpass',
         description='Suppresses higher frequencies while allowing lower frequencies to pass through.'
@@ -801,14 +805,14 @@ class Music(commands.Cog):
         filters.low_pass.set(smoothing=smoothing)
         await player.set_filters(filters)
 
-        embed = discord.Embed(title=f'Changed Filter', color=formats.Colour.teal(),
+        embed = discord.Embed(title=f'Changed Filter', color=helpers.Colour.teal(),
                               description='*It may takes a while for the changes to apply.*')
         embed.add_field(name=f'Applied LowPass Filter:',
                         value=f'Set Smoothing to ``{smoothing}``.',
                         inline=False)
         await ctx.send(embed=embed, delete_after=10)
 
-    @_commands.command(filter.command, name='reset', description='Reset all active filters.')
+    @commands.command(filter.command, name='reset', description='Reset all active filters.')
     @checks.is_author_connected()
     @checks.is_player_playing()
     async def filter_reset(self, ctx: Context):
@@ -821,7 +825,7 @@ class Music(commands.Cog):
         await player.set_filters()
         await ctx.stick(True, 'Removed all active filters.', delete_after=10)
 
-    @_commands.command(description='Skip the playing song to the next.', guild_only=True)
+    @commands.command(description='Skip the playing song to the next.', guild_only=True)
     @checks.is_author_connected()
     @checks.is_player_playing()
     @checks.is_listen_together()
@@ -837,7 +841,7 @@ class Music(commands.Cog):
         else:
             await ctx.stick(False, 'The queue is empty.', ephemeral=True, delete_after=10)
 
-    @_commands.command(name='jump-to', description='Jump to a track in the Queue.', guild_only=True)
+    @commands.command(name='jump-to', description='Jump to a track in the Queue.', guild_only=True)
     @app_commands.describe(position='The index of the track you want to jump to.')
     @checks.is_author_connected()
     @checks.is_player_playing()
@@ -872,7 +876,7 @@ class Music(commands.Cog):
         else:
             return await ctx.stick(False, 'The queue is empty.', ephemeral=True, delete_after=10)
 
-    @_commands.command(description='Plays the previous Track.', guild_only=True)
+    @commands.command(description='Plays the previous Track.', guild_only=True)
     @checks.is_author_connected()
     @checks.is_player_playing()
     @checks.is_listen_together()
@@ -899,7 +903,7 @@ class Music(commands.Cog):
                                    'Or you are on the first position.', ephemeral=True)
             return
 
-    @_commands.command(description='Display the active queue.', guild_only=True)
+    @commands.command(description='Display the active queue.', guild_only=True)
     async def queue(self, ctx: Context):
         """Display the active queue."""
         player: Player = cast(Player, ctx.voice_client)
@@ -922,7 +926,7 @@ class Music(commands.Cog):
                 )
 
             async def format_page(self, entries: List, /) -> discord.Embed:
-                embed = discord.Embed(color=formats.Colour.teal())
+                embed = discord.Embed(color=helpers.Colour.teal())
                 embed.set_author(name=f'{ctx.guild.name}\'s Current Queue', icon_url=ctx.guild.icon.url)
 
                 embed.add_field(
@@ -945,7 +949,7 @@ class Music(commands.Cog):
 
         await QueuePaginator.start(ctx, entries=player.queue, per_page=30)
 
-    @_commands.command(description='Search for some lyrics.')
+    @commands.command(description='Search for some lyrics.')
     @app_commands.describe(song='The song you want to search for.')
     @commands.guild_only()
     async def lyrics(self, ctx: Context, *, song: str = None):
@@ -994,7 +998,7 @@ class Music(commands.Cog):
                 async def format_page(self, entries: List, /) -> discord.Embed:
                     embed = discord.Embed(title=song['songTitle'],
                                           description=entries[0],
-                                          colour=formats.Colour.teal())
+                                          colour=helpers.Colour.teal())
                     embed.set_thumbnail(url=song['songImageURL'])
                     return embed
 

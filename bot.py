@@ -3,7 +3,8 @@ from __future__ import annotations
 import datetime
 import logging
 from collections import defaultdict, Counter
-from typing import Optional, List, Union, Dict, Iterable, AsyncIterator, Counter, Any, Type
+from typing import Optional, List, Union, Dict, Iterable, AsyncIterator, Counter, Any, Type, Callable, Coroutine, \
+    TYPE_CHECKING
 
 import aiohttp
 import asyncpg
@@ -14,11 +15,15 @@ from expiringdict import ExpiringDict
 
 from cogs import EXTENSIONS
 from cogs.config import Config as ConfigCog
-from cogs.utils import formats
+from cogs.utils import helpers
 from cogs.utils.config import Config
 from cogs.utils.context import Context
 
-log = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from launcher import get_logger
+    log = get_logger(__name__)
+else:
+    log = logging.getLogger(__name__)
 
 
 def _callable_prefix(bot: RoboHashira, msg: discord.Message):
@@ -163,6 +168,7 @@ class RoboHashira(commands.Bot):
     logging_handler: Any
     bot_app_info: discord.AppInfo
     pool: asyncpg.Pool
+    old_tree_error = Callable[[discord.Interaction, discord.app_commands.AppCommandError], Coroutine[Any, Any, None]]
 
     def __init__(self) -> None:
         allowed_mentions = discord.AllowedMentions(roles=False, everyone=False, users=True)
@@ -197,7 +203,7 @@ class RoboHashira(commands.Bot):
 
         self._error_message_log: list[int] = []  # type: ignore # message_ids
         self.context: Type[Context] = Context
-        self.colour: Type[formats.Colour] = formats.Colour
+        self.colour: Type[helpers.Colour] = helpers.Colour
 
         self.initial_extensions: list[str] = EXTENSIONS
 

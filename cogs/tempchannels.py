@@ -3,13 +3,11 @@ from __future__ import annotations
 from typing import Optional
 import discord
 from discord import app_commands
-from discord.ext import commands
 
 from bot import RoboHashira
 from .config import GuildConfig, TempChannel, ModifyType
-from .utils._commands import PermissionTemplate
 from .utils.context import Context
-from .utils import checks, fuzzy, _commands
+from .utils import fuzzy, commands
 from .utils.formats import plural
 
 
@@ -33,13 +31,13 @@ class TempChannels(commands.Cog):
         results = fuzzy.finder(current, channels, key=lambda t: t.name)
         return [app_commands.Choice(value=str(result.id), name=result.name) for result in results][:25]
 
-    @_commands.command(
+    @commands.command(
         commands.hybrid_group,
         name='temp',
         description='Manage Temp Channels.',
         guild_only=True
     )
-    @_commands.permissions(user=['manage_channels'])
+    @commands.permissions(user=['manage_channels'])
     async def _temp(self, ctx: Context):
         """Get an overview of the Use of the TempChannels.
         To manage Temp Channels, (you and) the bot must have the following permissions:
@@ -48,7 +46,7 @@ class TempChannels(commands.Cog):
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @_commands.command(_temp.command, name='list', description='List of current temporary channels.')
+    @commands.command(_temp.command, name='list', description='List of current temporary channels.')
     async def temp_list(self, ctx: Context):
         """List of current temporary channels."""
         config: GuildConfig = await self.bot.cfg.get_config(ctx.guild.id)
@@ -65,7 +63,7 @@ class TempChannels(commands.Cog):
         embed.set_footer(text=f'{plural(len(config.temp_channels)):channel}')
         await ctx.send(embed=embed)
 
-    @_commands.command(_temp.command, name='add', description='Sets the channel where to create a temporary channel.')
+    @commands.command(_temp.command, name='add', description='Sets the channel where to create a temporary channel.')
     @app_commands.rename(_format='format')
     @app_commands.describe(
         channel='Enter a voice-channel.',
@@ -82,7 +80,7 @@ class TempChannels(commands.Cog):
         await ctx.send(
             f'<:greenTick:1079249732364406854> Successfully added {channel.mention} with format **`{_format}`**.')
 
-    @_commands.command(_temp.command, name='edit', description='Edit the format of a active Temp Channel.')
+    @commands.command(_temp.command, name='edit', description='Edit the format of a active Temp Channel.')
     @app_commands.rename(_format='format')
     @app_commands.describe(
         channel_id='Enter a Voice Hub ID.',
@@ -112,7 +110,7 @@ class TempChannels(commands.Cog):
         await ctx.send(
             f'<:greenTick:1079249732364406854> Successfully edited <#{channel.id}> with format **`{_format}`**.')
 
-    @_commands.command(_temp.command, name='remove', description='Remove a existing temp channel.')
+    @commands.command(_temp.command, name='remove', description='Remove a existing temp channel.')
     @app_commands.describe(channel_id='Enter a Voice Hub ID.')
     @app_commands.autocomplete(channel_id=temp_channel_id_autocomplete)  # type: ignore
     async def temp_remove(self, ctx: Context, channel_id: str):

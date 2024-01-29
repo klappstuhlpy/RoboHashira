@@ -7,8 +7,8 @@ import discord
 from discord import app_commands
 from discord.abc import Snowflake
 from discord.app_commands import locale_str
+from discord.ext.commands import *
 from discord.ext import commands
-
 from cogs.utils import checks
 
 
@@ -26,10 +26,10 @@ class CommandCategory(enum.Enum):
 
 AnyCommand = Union[
     app_commands.command,
-    commands.command,
-    commands.group,
-    commands.hybrid_command,
-    commands.hybrid_group,
+    command,
+    group,
+    hybrid_command,
+    hybrid_group,
 ]
 
 AnyCommandSignature = {
@@ -40,6 +40,15 @@ AnyCommandSignature = {
 
 
 T = TypeVar('T')
+
+
+class CooldownMap:
+    """A class that represents a mapping of cooldowns."""
+
+    rate: ClassVar[int]
+    per: ClassVar[int]
+    type: Optional[ClassVar[BucketType]]
+    key: Optional[ClassVar[Callable]]
 
 
 class PermissionTemplate:
@@ -53,10 +62,14 @@ class PermissionTemplate:
     manager: ClassVar[str] = ['manage_guild']
 
 
+# Alias
+core_command = commands.command
+
+
 def guilds(*guild_ids: Union[Snowflake, int]) -> Callable[[T], T]:
     r"""Decorator to set the guilds which this command will be added to by default.
 
-    Works for App-, Hybrid- and Core- commands/groups.
+    Works for App, Hybrid and Core commands/groups.
 
     Parameters
     -----------
@@ -93,7 +106,7 @@ def permissions(
         category: CommandCategory | int = CommandCategory.Hybrid,
         *,
         user: Optional[List[str] | str] = PermissionTemplate.user,
-        bot: Optional[List[str] | str] = PermissionTemplate.bot
+        bot: Optional[List[str] | str] = PermissionTemplate.bot  # noqa
 ) -> Callable[[T], T]:
     r"""A custom decorator that allows you to assign permission for the bot and user.
     Assign a :class:`CommandCategory` to the ``category`` parameter to determine which decorator to use.
@@ -139,13 +152,13 @@ def permissions(
             if category == CommandCategory.App:
                 func = app_commands.checks.bot_has_permissions(**_bot_permissions)(func)
             elif category in (CommandCategory.Core, CommandCategory.Hybrid):
-                func = commands.bot_has_permissions(**_bot_permissions)(func)
+                func = bot_has_permissions(**_bot_permissions)(func)
 
         if _user_permissions:
             if category == CommandCategory.App:
                 func = app_commands.checks.has_permissions(**_user_permissions)(func)
             elif category == CommandCategory.Core:
-                func = commands.has_permissions(**_user_permissions)(func)
+                func = has_permissions(**_user_permissions)(func)
             elif category == CommandCategory.Hybrid:
                 func = checks.hybrid_permissions_check(**_user_permissions)(func)
             else:
@@ -163,7 +176,7 @@ def permissions(
 
 
 def command(
-        func: AnyCommand = commands.hybrid_command,
+        func: AnyCommand = hybrid_command,
         *,
         name: Optional[str] = None,
         description: Union[str, locale_str] = 'Command undocumented.',
@@ -171,7 +184,8 @@ def command(
         nsfw: bool = False,
         extras: Dict[str, Any] = None,
         raw: bool = False,
-        guild_only: bool = False,
+        guild_only: bool = False,  # noqa
+        cooldown: CooldownMap = None,  # noqa
         **kwargs
 ):
     r"""A custom decorator that assigns a function as a command.
@@ -195,7 +209,7 @@ def command(
     name: Optional[str]
         The name of the command. Defaults to the name of the function ``func.__name__``.
     description: Union[str, locale_str]
-        The description of the command. Defaults to ``'Command undocumented.'``.
+        The description of the command. Defaults to ``"Command undocumented."``.
     examples: List[str]
         A list of examples for the command. Defaults to ``None``.
     nsfw: bool
@@ -205,7 +219,10 @@ def command(
     raw: bool
         Whether to or not to return the command with an applied :class:`PermissionTemplate`.
     guild_only: bool
-        Whether the command can only be used in a guild. Defaults to ``False``.
+        Whether the command can only be used in a guild.
+    cooldown: CooldownMapping
+        A mapping of cooldowns for the command. Defaults to ``None``.
+        This can be used for app- and core commands.
     **kwargs
         Any keyword arguments to be passed to the command type.
 
@@ -237,6 +254,12 @@ def command(
             self = app_commands.guild_only()(self)
         else:
             self = commands.guild_only()(self)
+
+    if cooldown:
+        if func == app_commands.command:
+            self = app_commands.checks.cooldown(rate=cooldown.rate, per=cooldown.per, key=cooldown.key)(self)
+        else:
+            self = commands.cooldown(rate=cooldown.rate, per=cooldown.per, type=cooldown.type)(self)
 
     if raw:
         return self

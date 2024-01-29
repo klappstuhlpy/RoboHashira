@@ -2,12 +2,11 @@ from typing import Literal, cast, TYPE_CHECKING
 
 import discord
 import wavelink
-from discord.ext import commands
 from discord import app_commands
 
 from bot import RoboHashira
 from .utils.context import Context
-from .utils import checks, formats, _commands
+from .utils import checks, helpers, commands
 from cogs.utils.player import Player
 
 if TYPE_CHECKING:
@@ -25,7 +24,7 @@ class Radio(commands.Cog):
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='\N{RADIO}')
 
-    @_commands.command(
+    @commands.command(
         description='Adds a track/playlist to the queue and play the next available track.',
         guild_only=True
     )
@@ -68,7 +67,7 @@ class Radio(commands.Cog):
         embed = discord.Embed(
             title=source,
             description=f'{message_prefix} Radio Station: **{source}**',
-            colour=formats.Colour.teal())
+            colour=helpers.Colour.teal())
         await ctx.send(embed=embed, delete_after=15)
 
 
