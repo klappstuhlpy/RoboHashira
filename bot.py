@@ -17,7 +17,7 @@ from cogs import EXTENSIONS
 from cogs.config import Config as ConfigCog
 from cogs.utils import helpers
 from cogs.utils.config import Config
-from cogs.utils.context import Context
+from cogs.utils.context import Context, tick
 
 if TYPE_CHECKING:
     from launcher import get_logger
@@ -320,22 +320,20 @@ class RoboHashira(commands.Bot):
             await ctx.author.send('This command cannot be used in private messages.')
         elif isinstance(error, commands.DisabledCommand):
             await ctx.author.send('Sorry. This command is disabled and cannot be used.')
+        elif isinstance(error, commands.BotMissingPermissions):
+            missing = [perm.replace('_', ' ').replace('guild', 'server').title() for perm in error.missing_permissions]
+            await ctx.send(f'I don\'t have the permissions to perform this action.\n'
+                           f'Missing: `{", ".join(missing)}`')
+        elif isinstance(error, commands.CommandOnCooldown):
+            await ctx.send(
+                f'<:warning:1113421726861238363> Slow down, you\'re on cooldown. Retry again in **{error.retry_after:.2f}s**.')
         elif isinstance(error, commands.CommandInvokeError):
             original = error.original
             if not isinstance(original, discord.HTTPException):
                 log.exception('In %s:', ctx.command.qualified_name, exc_info=original)
-        elif isinstance(error, commands.ArgumentParsingError):
-            await ctx.send(str(error))
-        elif isinstance(error, commands.MissingRequiredArgument):
-            await ctx.send(f'Missing required argument: `{error.param.name}`')
-        elif isinstance(error, commands.MissingRequiredFlag):
-            await ctx.send(f'Missing required flag: `{error.flag.name}`')
-        elif isinstance(error, commands.BotMissingPermissions):
-            missing = [perm.replace('_', ' ').replace('guild', 'server').title() for perm in error.missing_permissions]
-            await ctx.send(f'I don\'t have the permissions to perform this action.\n'
-                           f'Missing: `{', '.join(missing)}`')
-        elif isinstance(error, commands.CommandOnCooldown):
-            await ctx.send(f'<:warning:1113421726861238363> Slow down, you\'re on cooldown. Retry again in **{error.retry_after:.2f}s**.')
+        else:
+            # Handle any other unhandled errors
+            await ctx.send(f'{tick(False)} {str(error)}')
 
     # UTILS
 
