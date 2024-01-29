@@ -33,11 +33,10 @@ class PlaylistSelect(discord.ui.Select):
                          options=options)
 
     async def callback(self, interaction: discord.Interaction) -> Any:
-        index = int(self.values[0])
-        if index == 0:
+        if self.values[0] == '__index':
             self.paginator.pages = self.paginator.start_pages
         else:
-            playlist = self.paginator.playlists[index - 1]
+            playlist = self.paginator.playlists[int(self.values[0]) - 1]
             self.paginator.pages = playlist.to_embeds()
 
         self.paginator._current_page = 0
@@ -84,9 +83,9 @@ class Playlist(PostgresItem):
     id: int
     name: str
     owner_id: int
-    created_at: datetime
+    created: datetime
 
-    __slots__ = ('cog', 'id', 'name', 'owner_id', 'created_at', 'tracks', 'is_liked_songs')
+    __slots__ = ('cog', 'id', 'name', 'owner_id', 'created', 'tracks', 'is_liked_songs')
 
     def __init__(self, cog: PlaylistTools, **kwargs):
         self.cog: PlaylistTools = cog
@@ -125,7 +124,7 @@ class Playlist(PostgresItem):
         query = "INSERT INTO playlist_lookup (playlist_id, name, url) VALUES ($1, $2, $3) RETURNING *;"
         record = await self.cog.bot.pool.fetchrow(query, self.id, track.title, track.uri)
 
-        track = PlaylistTrack(record)
+        track = PlaylistTrack(record=record)
         self.tracks.append(track)
         return track
 
@@ -144,7 +143,7 @@ class Playlist(PostgresItem):
         embeds = []
         for page in source.pages:
             embed = discord.Embed(title=f'{self.name} ({plural(len(self.tracks)):Track})',
-                                  timestamp=self.created_at,
+                                  timestamp=self.created,
                                   description=page)
             embed.set_footer(text=f'[{self.id}] • Created at')
             embeds.append(embed)
@@ -238,7 +237,7 @@ class PlaylistTools(commands.Cog):
         playlist = Playlist(self, record=record) if record else None
         if playlist is not None and pass_tracks is False:
             records = await self.bot.pool.fetch("SELECT * FROM playlist_lookup WHERE playlist_id=$1;", playlist_id)
-            playlist.tracks = [PlaylistTrack(record) for record in records]
+            playlist.tracks = [PlaylistTrack(record=record) for record in records]
         return playlist
 
     async def get_liked_songs(self, user_id: int) -> Optional[Playlist]:
@@ -248,7 +247,7 @@ class PlaylistTools(commands.Cog):
         playlist = Playlist(self, record=record) if record else None
         if playlist is not None:
             records = await self.bot.pool.fetch("SELECT * FROM playlist_lookup WHERE playlist_id=$1;", playlist.id)
-            playlist.tracks = [PlaylistTrack(record) for record in records]
+            playlist.tracks = [PlaylistTrack(record=record) for record in records]
         return playlist
 
     @cache.cache()
@@ -258,7 +257,7 @@ class PlaylistTools(commands.Cog):
         playlists = [Playlist(self, record=record) for record in records]
         for playlist in playlists:
             records = await self.bot.pool.fetch("SELECT * FROM playlist_lookup WHERE playlist_id=$1;", playlist.id)
-            playlist.tracks = [PlaylistTrack(record) for record in records]
+            playlist.tracks = [PlaylistTrack(record=record) for record in records]
         return playlists
 
     @commands.command(

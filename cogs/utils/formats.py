@@ -8,6 +8,7 @@ import asyncpg
 import discord
 from discord.utils import TimestampStyle
 
+from cogs.utils import converters
 from cogs.utils.constants import INVITE_REGEX
 
 if TYPE_CHECKING:
@@ -412,3 +413,10 @@ def get_shortened_string(length: int, start: int, string: str) -> str:
     if has_end:
         return f'[{_id}] …{string[start + excess + 1:end]}…'
     return f'[{_id}] …{string[start + excess:end]}'
+
+
+def player_stamp(length: float, position: float) -> str:
+    convertable = [converters.convert_duration(position if not position < 0 else 0.0),
+                   converters.VisualStamp(0, length, position),
+                   converters.convert_duration(length)]
+    return ' '.join(convertable)

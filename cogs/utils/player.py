@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import enum
-import logging
 import datetime
 from typing import TYPE_CHECKING, Any, Optional, List, Generic, Type, TypeVar
 
@@ -12,7 +11,7 @@ from discord import Message, TextChannel, PartialEmoji
 from discord.ext import commands
 from discord.utils import MISSING
 
-from cogs.utils import formats
+from cogs.utils import formats, helpers
 from cogs.utils.formats import truncate
 from cogs.config import GuildConfig
 from cogs.utils import converters
@@ -151,7 +150,7 @@ class Player(wavelink.Player):
             title='Track Enqueued',
             description=f'`🎶` Added [{track.title}]({track.uri}) to the queue.\n'
                         f'`🎵` Track at Position **#{self.queue.all.index(track) + 1}/{len(self.queue.all)}**',
-            color=formats.Colour.teal()
+            color=helpers.Colour.teal()
         )
 
         if track.artwork:
@@ -164,10 +163,11 @@ class Player(wavelink.Player):
 
         if isinstance(obj, Context):
             return await obj.send(embed=embed, delete_after=15)
-        elif obj and obj.response.is_done():
-            return await obj.followup.send(embed=embed, delete_after=15)
         else:
-            return await obj.response.send_message(embed=embed, delete_after=15)
+            if obj and obj.response.is_done():
+                return await obj.followup.send(embed=embed, delete_after=15)
+            else:
+                return await obj.response.send_message(embed=embed, delete_after=15)
 
     async def delete_from_left(self):
         """Deletes all tracks from a member in the queue."""
@@ -526,7 +526,8 @@ class PlayerPanel(discord.ui.View, Generic[T]):
             cls: Type[PlayerPanel],
             player: Player,
             *,
-            state: PlayingState = PlayingState.STOPPED
+            channel: discord.TextChannel,
+            state: PlayingState = PlayingState.STOPPED,
     ) -> PlayerPanel[T]:
         """|coro|
 
@@ -536,6 +537,8 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         ----------
         player: :class:`Player`
             The player to use for the panel.
+        channel: :class:`discord.TextChannel`
+            The channel to send the panel to. Only used if no configuration for the guild is found.
         state: :class:`PlayingState`
             The state of the player.
 
@@ -545,6 +548,8 @@ class PlayerPanel(discord.ui.View, Generic[T]):
             The paginator that was started.
         """
         self = cls(player=player, state=state)
+
+        await self.fetch_player_channel(channel)
 
         self.msg = await self.update(state=state)
         return self

@@ -3,10 +3,9 @@ import io
 import random
 import string
 import sys
-import datetime
 from io import StringIO
 from types import TracebackType
-from typing import Union, Optional, Protocol, Any, Iterable, Sequence, Generic, Callable
+from typing import Union, Optional, Protocol, Any, Iterable, Sequence, Generic, Callable, AnyStr, TYPE_CHECKING, TypeVar
 
 import discord
 from aiohttp import ClientSession
@@ -15,10 +14,13 @@ from discord import Message, Embed, File, GuildSticker, StickerItem, AllowedMent
 from discord.context_managers import Typing
 from discord.ext import commands
 from discord.ext.commands.context import DeferTyping
-from discord.utils import MISSING, T
+from discord.utils import MISSING
 from discord.ui import View
 
-from cogs.utils import formats
+if TYPE_CHECKING:
+    from bot import RoboHashira
+
+T = TypeVar('T')
 
 
 def tick(_: Optional[bool], label: Optional[str] = None) -> str:
@@ -157,14 +159,35 @@ class DisambiguatorView(discord.ui.View, Generic[T]):
         self.stop()
 
 
+class ContextResponse:
+    """A Fake interaction response that has methods like a "discord.Interaction.response" object to be able
+    to send/edit etc. message without needing to double code for a Context and Interaction object when used.
+    """
+
+    def __init__(self, ctx: Context):
+        self.ctx: Context = ctx
+
+    async def send_message(self, *args, **kwargs):
+        return await self.ctx.send(*args, **kwargs)
+
+    async def edit_message(self, *args, **kwargs):
+        return await self.ctx.message.edit(*args, **kwargs)
+
+    async def defer(self, *args, **kwargs):
+        return await self.ctx.defer(*args, **kwargs)
+
+
 class Context(commands.Context):
     channel: Union[discord.VoiceChannel, discord.TextChannel, discord.Thread, discord.DMChannel]
     prefix: str
     command: commands.Command[Any, ..., Any]
+    bot: RoboHashira
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.pool: Pool = self.bot.pool
+
+        self.tick = staticmethod(tick)
 
     async def entry_to_code(self, entries: Iterable[tuple[str, str]]) -> None:
         width = max(len(a) for a, b in entries)
@@ -198,6 +221,25 @@ class Context(commands.Context):
         if ref and isinstance(ref.resolved, discord.Message):
             return ref.resolved
         return None
+
+    @property
+    def response(self) -> ContextResponse:
+        return ContextResponse(self)
+
+    @property
+    def user(self) -> discord.Member:
+        """Alias to author."""
+        return self.author
+
+    @property
+    def client(self) -> 'commands.Bot':
+        """Returns the client."""
+        return self.bot
+
+    @property
+    def guild_id(self) -> int:
+        """Returns the guild ID of the message."""
+        return self.guild.id
 
     async def disambiguate(self, matches: list[T], entry: Callable[[T], Any], *, ephemeral: bool = False) -> T:
         if len(matches) == 0:
@@ -254,46 +296,20 @@ class Context(commands.Context):
             delete_after=delete_after,
             author_id=author_id,
         )
-        view.message = await self.send(embed=discord.Embed(title="Are you sure?",
+        view.message = await self.send(embed=discord.Embed(title='Are you sure?',
                                                            description=message,
                                                            colour=discord.Colour(0xF8DB5E)),
                                        view=view, ephemeral=ephemeral)
         await view.wait()
         return view.value
 
-    async def stick(self, _: Optional[bool], content: Optional[str] = None, **kwargs: Any) -> Message:
-        """Sends a tick or cross emoji based on the value of `x` with an optional message."""
-        return await self.send(f'{tick(_)} {content or ''}', **kwargs)
-
     @property
     def session(self) -> ClientSession:
         return self.bot.session
 
     @property
-    def user(self) -> discord.Member:
-        return self.author
-
-    @property
     def db(self) -> DatabaseProtocol:
         return self.pool  # type: ignore
-
-    @property
-    def client(self) -> 'commands.Bot':
-        return self.bot
-
-    @discord.utils.cached_property
-    def replied_reference(self) -> Optional[discord.MessageReference]:
-        ref = self.message.reference
-        if ref and isinstance(ref.resolved, discord.Message):
-            return ref.resolved.to_reference()
-        return None
-
-    @discord.utils.cached_property
-    def replied_message(self) -> Optional[discord.Message]:
-        ref = self.message.reference
-        if ref and isinstance(ref.resolved, discord.Message):
-            return ref.resolved
-        return None
 
     def typing(self, *, ephemeral: bool = False) -> Union[Typing, DeferTyping]:
         """A custom typing method that allows us to defer typing if we want to."""
@@ -301,37 +317,9 @@ class Context(commands.Context):
             return EditTyping(self)
         return DeferTyping(self, ephemeral=ephemeral)
 
-    async def invoke(self, command: commands.Command | str, *args, **kwargs):
-        """A custom invoke method that allows us to invoke commands from other commands."""
-        if isinstance(command, str):
-            command = self.bot.get_command(command)
-
-        self.command = command
-        return await command(*args, **kwargs)
-
-    async def send_and_cache(self, *args: Any, **kwargs: Any) -> Message:
-        message = await super().send(*args, **kwargs)
-        self.bot.command_cache[self.message.id] = message
-        return message
-
-    async def edit_and_recache(self, message: discord.Message, *args: Any, **kwargs: Any) -> Message:
-        message = await message.edit(*args, **kwargs)
-        self.bot.command_cache[self.message.id] = message
-        return message
-
-    async def fetch_color(self, member: discord.Member | discord.User | None = None) -> discord.Color:
-        member = member or self.author
-        data = self.cache.users.get(member.id)
-        color = None
-        if data is not None and data["color"] is not None:
-            color = discord.Color(data["color"])
-        if not color:
-            color = member.color
-        if color == discord.Color(0):
-            color = discord.Color(0x2F3136)
-            if await self.bot.is_owner(member):
-                color = discord.Color(0x01B9C0)
-        return color
+    async def stick(self, _: Optional[bool], content: Optional[str] = None, **kwargs: Any) -> Message:
+        """Sends a tick or cross emoji based on the value of `x` with an optional message."""
+        return await self.send(f'{self.tick(_)} {content or ''}', **kwargs)
 
     async def send(
             self,
@@ -348,16 +336,84 @@ class Context(commands.Context):
             allowed_mentions: Optional[AllowedMentions] = None,
             reference: Optional[Union[Message, MessageReference, PartialMessage]] = None,
             mention_author: Optional[bool] = None,
-            view: Optional[View] = None,
+            view: Optional[discord.ui.View] = None,
             suppress_embeds: bool = False,
             ephemeral: bool = False,
             post: bool = False,
-            no_edit: bool = False,
             no_reply: bool = False,
             silent: bool = False,
     ) -> discord.Message:
-        """A custom send method that allows us to edit the previous message."""
+        """A custom send method that allows us to edit the previous message.
+
+        Parameters
+        -----------
+        content: Optional[str]
+            The content of the message to send.
+        tts: bool
+            Indicates if the message should be sent using text-to-speech.
+        embed: Optional[Embed]
+            The rich embed for the content.
+        embeds: Optional[Sequence[Embed]]
+            A list of embeds to send with the message. Must be a maximum of 10.
+        file: Optional[File]
+            The file to upload.
+        files: Optional[Sequence[File]]
+            A list of files to upload. Must be a maximum of 10.
+        stickers: Optional[Sequence[Union[GuildSticker, StickerItem]]]
+            A list of stickers to send with the message. Must be a maximum of 3.
+        delete_after: Optional[float]
+            If provided, the number of seconds to wait in the background
+            before deleting the message we just sent.
+        nonce: Optional[Union[str, int]]
+            The nonce to use for sending this message. If the message was successfully sent,
+            then the message will have a nonce with this value.
+        allowed_mentions: Optional[AllowedMentions]
+            Controls the mentions being processed in this message. If this is
+            passed, then the object is merged with :attr:`.allowed_mentions`.
+        reference: Optional[Union[Message, MessageReference, PartialMessage]]
+            A reference to the :class:`Message` to which you are replying, this can be created
+            with :meth:`Message.to_reference` or passed directly as a :class:`Message`, :class:`PartialMessage`,
+            or :class:`MessageReference`. This allows for providing replies to messages.
+        mention_author: Optional[bool]
+            If set, overrides the :attr:`.allowed_mentions` attribute to mention the
+            author of the message being replied to. If this is set to ``True`` then the
+            message reference *must* be set.
+        view: Optional[View]
+            The view to send with the message.
+        suppress_embeds: bool
+            Indicates if embeds should be suppressed for this message. If set to ``True``, all
+            :class:`Embed` in :attr:`embeds` will be set to :class:`Embed.Empty` and all
+            :class:`MessageEmbed` in :attr:`embeds` will be set to ``None``.
+        ephemeral: bool
+            Indicates if the message should only be visible to the user who started the interaction.
+        post: bool
+            Indicates if the message should be posted to GitHub Gist.
+        no_reply: bool
+            Indicates if the message should not be replied to.
+        silent: bool
+            Indicates if the message should be sent silently.
+
+        Raises
+        --------
+        ~discord.HTTPException
+            Sending the message failed.
+        ~discord.Forbidden
+            You do not have the proper permissions to send the message.
+        ValueError
+            The ``files`` list is not of the appropriate size.
+        TypeError
+            You specified both ``file`` and ``files``,
+            or you specified both ``embed`` and ``embeds``,
+            or the ``reference`` object is not a :class:`~discord.Message`,
+            :class:`~discord.MessageReference` or :class:`~discord.PartialMessage`.
+
+        Returns
+        ---------
+        :class:`~discord.Message`
+            The message that was sent.
+        """
         if self.interaction is None or self.interaction.is_expired():
+            # noinspection PyArgumentList
             return await super().send(
                 content=content,
                 tts=tts,
@@ -373,97 +429,71 @@ class Context(commands.Context):
                 mention_author=mention_author,
                 view=view,
                 suppress_embeds=suppress_embeds,
-                silent=silent,
+                ephemeral=ephemeral,
             )
 
         if content:
             content = str(content)
             for path in sys.path:
-                content = content.replace(path, "[PATH]")
+                content = content.replace(path, '[PATH]')
             if len(content) >= 2000:
                 if post:
-                    content = f"Output too long, posted here: {await self.send_as_file(filename='output.py', content=content)}"
+                    content = f'Output too long :/'
 
         if embed:
             if not embed.footer:
                 embed.set_footer(
-                    text=f"Requested by: {self.author}",
+                    text=f'Requested by: {self.author}',
                     icon_url=self.author.display_avatar.url,
                 )
-                embed.timestamp = datetime.datetime.now(datetime.timezone.utc)
-            if not embed.color:
-                embed.colour = formats.Colour.teal()
+                embed.timestamp = discord.utils.utcnow()
 
         if ephemeral:
             no_reply = True
 
         kwargs: dict[str, Any] = {
-            "content": content,
-            "tts": tts,
-            "embed": embed,
-            "embeds": embeds,
-            "file": file,
-            "files": files,
-            "stickers": stickers,
-            "delete_after": delete_after,
-            "nonce": nonce,
-            "allowed_mentions": allowed_mentions,
-            "reference": reference,
-            "mention_author": mention_author,
-            "view": view,
-            "suppress_embeds": suppress_embeds,
-            "silent": silent,
+            'content': content,
+            'tts': tts,
+            'embed': embed,
+            'embeds': embeds,
+            'file': file,
+            'files': files,
+            'stickers': stickers,
+            'delete_after': delete_after,
+            'nonce': nonce,
+            'allowed_mentions': allowed_mentions,
+            'reference': reference,
+            'mention_author': mention_author,
+            'view': view,
+            'suppress_embeds': suppress_embeds,
+            'silent': silent,
         }
-
-        if self.message.id in self.bot.command_cache and self.message.edited_at and not no_edit:
-            edit_kwargs = kwargs.copy()
-            try:
-                to_pop = (
-                    "tts",
-                    "file",
-                    "files",
-                    "stickers",
-                    "nonce",
-                    "mention_author",
-                    "reference",
-                    "suppress_embeds",
-                )
-                for pop in to_pop:
-                    edit_kwargs.pop(pop, None)
-                edit_kwargs["embed"] = embed
-                edit_kwargs["embeds"] = MISSING if embeds is None else embeds
-                edit_kwargs["suppress"] = suppress_embeds
-                message = self.bot.command_cache[self.message.id]
-                return await self.edit_and_recache(message, **edit_kwargs)  # type: ignore
-            except discord.HTTPException:
-                return await self.send_and_cache(**kwargs)
 
         if self.interaction is None or self.interaction.is_expired():
-            kwargs["reference"] = self.message.to_reference(fail_if_not_exists=False) or reference
+            kwargs['reference'] = self.message.to_reference(fail_if_not_exists=False) or reference
             if no_reply:
-                kwargs["reference"] = None
-            return await self.send_and_cache(**kwargs)
+                kwargs['reference'] = None
+            return await self.send(**kwargs)
 
         kwargs = {
-            "content": content,
-            "tts": tts,
-            "embed": MISSING if embed is None else embed,
-            "embeds": MISSING if embeds is None else embeds,
-            "file": MISSING if file is None else file,
-            "files": MISSING if files is None else files,
-            "allowed_mentions": MISSING if allowed_mentions is None else allowed_mentions,
-            "view": MISSING if view is None else view,
-            "suppress_embeds": suppress_embeds,
-            "ephemeral": ephemeral,
-            "silent": silent,
+            'content': content,
+            'tts': tts,
+            'embed': MISSING if embed is None else embed,
+            'embeds': MISSING if embeds is None else embeds,
+            'file': MISSING if file is None else file,
+            'files': MISSING if files is None else files,
+            'allowed_mentions': MISSING if allowed_mentions is None else allowed_mentions,
+            'view': MISSING if view is None else view,
+            'suppress_embeds': suppress_embeds,
+            'ephemeral': ephemeral,
+            'silent': silent,
         }
 
-        if self.interaction:
-            if self.interaction.response.is_done():
-                msg = await self.interaction.followup.send(**kwargs, wait=True)
-            else:
-                await self.interaction.response.send_message(**kwargs)
-                msg = await self.interaction.original_response()
+        if self.interaction.response.is_done():
+            msg = await self.interaction.followup.send(**kwargs, wait=True)
+        elif not self.interaction.response.is_done():
+            await self.interaction.response.send_message(**kwargs)
+            msg = await self.interaction.original_response()
         else:
             msg = await self.send(**kwargs)
 
@@ -472,27 +502,32 @@ class Context(commands.Context):
 
         return msg
 
+    @staticmethod
     async def string_to_file(
-            self, content: str = None, filename: str = "message.txt"
+            content: AnyStr = None, filename: str = 'message.txt'
     ) -> discord.File:
         """Converts a string to a file."""
-        if filename == "random":
+        if filename == 'random':
             filename = "".join(random.choices(string.ascii_letters, k=24))
 
-        buf = StringIO()
+        if isinstance(content, str):
+            buf = StringIO()
+        elif isinstance(content, bytes):
+            buf = io.BytesIO()
+        else:
+            raise TypeError('Content must be str or bytes')
         buf.write(content)
         buf.seek(0)
         return discord.File(buf, filename=filename)
 
     async def send_as_file(
             self,
-            content: str = None,
+            content: AnyStr = None,
             message_content: str = None,
-            filename: str = "message.txt",
+            filename: str = 'message.txt',
             *args,
             **kwargs,
     ) -> discord.Message:
-        """Sends the content as a file instead of a message."""
         file = await self.string_to_file(content, filename=filename)
 
         return await super().send(
@@ -508,19 +543,11 @@ class Context(commands.Context):
         return await super().send_help(item)
 
     async def show_help(self, command: Any = None) -> None:
-        """Shows the help command for the specified command if given.
-        If no command is given, then it'll show help for the current
-        command.
-        """
         cmd = self.bot.get_command('help')
         command = command or self.command.qualified_name
         await self.invoke(cmd, command=command)  # type: ignore
 
     async def safe_send(self, content: str, *, escape_mentions: bool = True, **kwargs) -> Message:
-        """Same as send except with some safeguards.
-        1) If the message is too long then it sends a file with the results instead.
-        2) If ``escape_mentions`` is ``True`` then it escapes mentions.
-        """
         if escape_mentions:
             content = discord.utils.escape_mentions(content)
 

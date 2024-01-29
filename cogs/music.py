@@ -255,10 +255,10 @@ class Music(commands.Cog):
             await player.view.channel.send('The host has stopped listening to Spotify.')
             await player.disconnect()
 
-    async def join(self, ctx: discord.Interaction | Context) -> Player:
-        channel = ctx.user.voice.channel if ctx.user.voice else None
+    async def join(self, obj: discord.Interaction | Context) -> Player:
+        channel = obj.user.voice.channel if obj.user.voice else None  # type: ignore
         if not channel:
-            if isinstance(ctx, Context):
+            if isinstance(obj, Context):
                 raise errors.BadArgument('You need to be in a voice channel or provide one to connect to.')
             else:
                 raise app_commands.AppCommandError('You need to be in a voice channel or provide one to connect to.')
@@ -267,11 +267,10 @@ class Music(commands.Cog):
 
         if isinstance(channel, discord.StageChannel):
             if not channel.instance:
-                await channel.create_instance(topic=f'Music by {ctx.guild.me.display_name}')
-            await ctx.guild.me.edit(suppress=False)
+                await channel.create_instance(topic=f'Music by {obj.guild.me.display_name}')
+            await obj.guild.me.edit(suppress=False)
 
-        player.view = await PlayerPanel.start(player)
-        await player.view.fetch_player_channel(ctx.channel)
+        player.view = await PlayerPanel.start(player, channel=obj.channel)
         return player
 
     @commands.command(
