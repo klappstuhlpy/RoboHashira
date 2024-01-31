@@ -10,11 +10,15 @@ from discord.app_commands import locale_str
 from discord.ext.commands import *
 from discord.ext import commands
 from cogs.utils import checks, helpers
+from cogs.utils import errors as error_utils
 
 
 # Aliases
 core_command = commands.command
 FlagConverter = helpers.FlagConverter
+
+BadArgument = error_utils.BadArgument
+CommandError = error_utils.CommandError
 
 
 class CommandCategory(enum.Enum):

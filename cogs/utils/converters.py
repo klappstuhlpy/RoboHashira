@@ -15,16 +15,12 @@ import discord
 from discord.ext import commands
 import datetime as dt
 
-from cogs.utils import errors
+from cogs.utils.constants import MENTION_REGEX, defaultBands, URL_REGEX
 
 if TYPE_CHECKING:
-    from cogs.utils.context import GuildContext
+    from cogs.utils.context import GuildContext, tick
 else:
     GuildContext = 'GuildContext'
-
-MENTION_REGEX = re.compile(r'<@(!?)([0-9]*)>')
-
-defaultBands = [{'band': i, 'gain': 0.0} for i in range(15)]
 
 
 def get_asset_url(obj: Union[discord.Guild, discord.User, discord.Member, discord.ClientUser]) -> str:
@@ -241,9 +237,6 @@ def member_count(g, val):
     return mc
 
 
-URL_REGEX = re.compile(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*(),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
-
-
 class URLObject:
     def __init__(self, url: str):
         if not URL_REGEX.match(url):
@@ -373,30 +366,15 @@ class QueueIndex(app_commands.Transformer):
         try:
             index = int(value)
         except ValueError:
-            return await interaction.response.send_message(
-                embed=discord.Embed(
-                    title='Error',
-                    description='Please provide a valid integer',
-                    color=discord.Color.red()
-                )
-            )
+            await interaction.response.send_message(f'{tick(False)} Please provide a valid number.')
+            return False
 
         if index <= 0:
-            return await interaction.response.send_message(
-                embed=discord.Embed(
-                    title='Error',
-                    description='Please provide a valid integer that is greater than 0.',
-                    color=discord.Color.red()
-                )
-            )
+            await interaction.response.send_message(f'{tick(False)} Please provide index greater than **0**.')
+            return False
         if index > (total_tracks := interaction.guild.voice_client.queue.count):  # noqa
-            return await interaction.response.send_message(
-                embed=discord.Embed(
-                    title='Error',
-                    description=f'There are only {total_tracks} tracks in the queue.',
-                    color=discord.Color.red()
-                )
-            )
+            await interaction.response.send_message(f'{tick(False)} There are only **{total_tracks}** tracks in the queue.')
+            return False
 
         return index
 
@@ -436,5 +414,5 @@ class ModuleConverter(commands.Converter[ModuleType]):
         icon = '\N{OUTBOX TRAY}' if ctx.invoked_with == 'ml' else '\N{CLOCKWISE RIGHTWARDS AND LEFTWARDS OPEN CIRCLE ARROWS}'
 
         if not module:
-            raise errors.BadArgument(f'{icon}\N{WARNING SIGN} `{argument!r}` is not a valid module.')
+            raise commands.BadArgument(f'{icon}\N{WARNING SIGN} `{argument!r}` is not a valid module.')
         return module

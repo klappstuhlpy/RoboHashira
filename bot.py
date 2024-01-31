@@ -327,13 +327,19 @@ class RoboHashira(commands.Bot):
         elif isinstance(error, commands.CommandOnCooldown):
             await ctx.send(
                 f'<:warning:1113421726861238363> Slow down, you\'re on cooldown. Retry again in **{error.retry_after:.2f}s**.')
+        elif isinstance(error, commands.TooManyArguments):
+            await ctx.stick(False, f'You called {ctx.command.name!r} command with too many arguments.')
         elif isinstance(error, commands.CommandInvokeError):
-            original = error.original
+            original = error.__cause__
             if not isinstance(original, discord.HTTPException):
                 log.exception('In %s:', ctx.command.qualified_name, exc_info=original)
+        elif isinstance(error, (
+                commands.ArgumentParsingError, commands.FlagError, commands.BadArgument, commands.CommandError
+        )):
+            await ctx.send(str(error))
         else:
             # Handle any other unhandled errors
-            await ctx.send(f'{tick(False)} {str(error)}')
+            await ctx.stick(False, str(error))
 
     # UTILS
 

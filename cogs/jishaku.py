@@ -94,7 +94,7 @@ class Jishaku(*OPTIONAL_FEATURES, *STANDARD_FEATURES):
                 try:
                     guilds_set.add(int(target))
                 except ValueError as error:
-                    raise errors.BadArgument(f'{target} is not a valid guild ID') from error
+                    raise commands.BadArgument(f'{target} is not a valid guild ID') from error
 
         if not targets:
             guilds_set.add(None)

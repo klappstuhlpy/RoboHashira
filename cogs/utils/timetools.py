@@ -13,7 +13,6 @@ from dateutil.relativedelta import relativedelta
 from discord import app_commands
 from discord.ext import commands
 
-from . import errors
 from .formats import plural, human_join
 
 units = pdt.pdtLocales['en_US'].units
@@ -76,7 +75,7 @@ class ShortTime:
                     self.dt = self.dt.astimezone(tzinfo)
                 return
             else:
-                raise errors.BadArgument('Invalid time passed, try e.g. "30m", "2 hours".')
+                raise commands.BadArgument('Invalid time passed, try e.g. "30m", "2 hours".')
 
         data = {k: int(v) for k, v in match.groupdict(default=0).items()}
         now = now or datetime.datetime.now(datetime.timezone.utc)
@@ -87,7 +86,7 @@ class ShortTime:
     @classmethod
     async def convert(cls, ctx: Context, argument: str) -> Self:
         tzinfo = datetime.timezone.utc
-        config = await ctx.bot.user_settings.get_user_config(ctx.author.id)
+        config = await ctx.bot.user_settings.get_user_config(ctx.author.id)  # noqa
         if config and config.timezone:
             tzinfo = config.tzinfo
         return cls(argument, now=ctx.message.created_at, tzinfo=tzinfo)
@@ -115,7 +114,7 @@ class HumanTime:
         dt, status = self.calendar.parseDT(argument, sourceTime=now, tzinfo=None)  # type: datetime.datetime, Any
 
         if not status.hasDateOrTime:  # If no date or time was provided, means it could not be parsed, raise an error
-            raise errors.BadArgument('Invalid time provided, try e.g. "tomorrow" or "3 days"')
+            raise commands.BadArgument('Invalid time provided, try e.g. "tomorrow" or "3 days"')
 
         if not status.hasTime:  # If no time was provided, set it to the current time
             dt = dt.replace(hour=now.hour, minute=now.minute, second=now.second, microsecond=now.microsecond)
@@ -128,7 +127,7 @@ class HumanTime:
     @classmethod
     async def convert(cls, ctx: Context, argument: str) -> Self:
         tzinfo = datetime.timezone.utc
-        config = await ctx.bot.user_settings.get_user_config(ctx.author.id)
+        config = await ctx.bot.user_settings.get_user_config(ctx.author.id)  # noqa
         if config and config.timezone:
             tzinfo = config.tzinfo
         return cls(argument, now=ctx.message.created_at, tzinfo=tzinfo)
@@ -166,7 +165,7 @@ class FutureTime(Time):
         super().__init__(argument, now=now, tzinfo=tzinfo)
 
         if self._past:
-            raise errors.BadArgument('This time is in the past')
+            raise commands.BadArgument('This time is in the past')
 
 
 class BadTimeTransform(app_commands.AppCommandError):
@@ -226,11 +225,11 @@ class FriendlyTimeResult:
             self, ctx: Context, uft: UserFriendlyTime, now: datetime.datetime, remaining: str
     ) -> None:
         if self.dt < now:
-            raise errors.BadArgument('This time is in the past.')
+            raise commands.BadArgument('This time is in the past.')
 
         if not remaining:
             if uft.default is None:
-                raise errors.BadArgument('Missing argument after the time.')
+                raise commands.BadArgument('Missing argument after the time.')
             remaining = uft.default
 
         if uft.converter is not None:
@@ -256,7 +255,7 @@ class RelativeDelta(app_commands.Transformer, commands.Converter):
         try:
             return self.__do_conversion(argument)
         except ValueError:
-            raise errors.BadArgument('Invalid time provided.') from None
+            raise commands.BadArgument('Invalid time provided.') from None
 
     async def transform(self, interaction, value: str) -> relativedelta:
         try:
@@ -296,7 +295,7 @@ class UserFriendlyTime(commands.Converter):
         regex = ShortTime.SHORT_TIME_COMPILED
 
         tzinfo = datetime.timezone.utc
-        config = await ctx.bot.user_settings.get_user_config(ctx.author.id)
+        config = await ctx.bot.user_settings.get_user_config(ctx.author.id)  # noqa
         if config and config.timezone:
             tzinfo = config.tzinfo
 
@@ -331,15 +330,15 @@ class UserFriendlyTime(commands.Converter):
         now = now.astimezone(tzinfo)
         elements = calendar.nlp(argument, sourceTime=now)
         if elements is None or len(elements) == 0:
-            raise errors.BadArgument('Invalid time provided, try e.g. "tomorrow" or "3 days".')
+            raise commands.BadArgument('Invalid time provided, try e.g. "tomorrow" or "3 days".')
 
         dt, status, begin, end, dt_string = elements[0]
 
         if not status.hasDateOrTime:
-            raise errors.BadArgument('Invalid time provided, try e.g. "tomorrow" or "3 days".')
+            raise commands.BadArgument('Invalid time provided, try e.g. "tomorrow" or "3 days".')
 
         if begin not in (0, 1) and end != len(argument):
-            raise errors.BadArgument(
+            raise commands.BadArgument(
                 'Time is either in an inappropriate location, which '
                 'must be either at the end or beginning of your input, '
                 'or I just flat out did not understand what you meant. Sorry.'
@@ -361,10 +360,10 @@ class UserFriendlyTime(commands.Converter):
         if begin in (0, 1):
             if begin == 1:
                 if argument[0] != '"':
-                    raise errors.BadArgument('Expected quote before time input...')
+                    raise commands.BadArgument('Expected quote before time input...')
 
                 if not (end < len(argument) and argument[end] == '"'):
-                    raise errors.BadArgument(''
+                    raise commands.BadArgument(''
                                                'If the time is quoted, you must unquote it.')
 
                 remaining = argument[end + 1:].lstrip(' ,.!')

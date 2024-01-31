@@ -14,7 +14,7 @@ from wavelink import DiscordVoiceCloseType
 
 from launcher import get_logger
 from .utils.context import Context
-from .utils import checks, converters, helpers, errors, commands
+from .utils import checks, converters, helpers, commands
 from .utils.render import Render
 from cogs.utils.player import Player, PlayingState, PlayerPanel
 from bot import RoboHashira
@@ -259,7 +259,7 @@ class Music(commands.Cog):
         channel = obj.user.voice.channel if obj.user.voice else None  # type: ignore
         if not channel:
             if isinstance(obj, Context):
-                raise errors.BadArgument('You need to be in a voice channel or provide one to connect to.')
+                raise commands.BadArgument('You need to be in a voice channel or provide one to connect to.')
             else:
                 raise app_commands.AppCommandError('You need to be in a voice channel or provide one to connect to.')
 
