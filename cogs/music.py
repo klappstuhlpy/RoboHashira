@@ -4,8 +4,11 @@ import logging
 import random
 from typing import Literal, Optional, Union, List, cast, TYPE_CHECKING
 import datetime
+from urllib.parse import urljoin
+
 import discord
 import wavelink
+from bs4 import BeautifulSoup, Tag, PageElement, NavigableString
 from discord import app_commands
 
 from discord.ext import tasks
@@ -106,7 +109,8 @@ class Music(commands.Cog):
             try:
                 await player.view.update(PlayingState.STOPPED)
                 await player.disconnect()
-            except:
+            except Exception as exc:
+                log.debug(f'Error while destroying player: {exc}')
                 pass
 
         args = ['%s=%r' % (k, v) for k, v in vars(payload).items()]
@@ -133,7 +137,8 @@ class Music(commands.Cog):
 
             try:
                 track = await player.search(activity.track_url)
-            except:
+            except Exception as exc:
+                log.debug(f'Error while searching for track: {exc}')
                 await player.view.channel.send('I couldn\'t find the track you were listening to on Spotify.')
                 return
 
@@ -236,7 +241,8 @@ class Music(commands.Cog):
 
                 try:
                     track = await player.search(new_activity.track_url)
-                except:
+                except Exception as exc:
+                    log.debug(f'Error while searching for track: {exc}')
                     await player.view.channel.send(
                         '<:redTick:1079249771975413910> I couldn\'t find the track you were listening to on Spotify.',
                         delete_after=10)
@@ -398,7 +404,8 @@ class Music(commands.Cog):
 
         try:
             track = await player.search(activity.track_url)
-        except:
+        except Exception as exc:
+            log.debug(f'Error while searching for track: {exc}')
             await interaction.response.send_message(
                 '<:redTick:1079249771975413910> The User isn\'t playing anything right now.', ephemeral=True,
                 delete_after=10)
@@ -948,6 +955,32 @@ class Music(commands.Cog):
 
         await QueuePaginator.start(ctx, entries=player.queue, per_page=30)
 
+    @classmethod
+    def _get_text(cls, element: Tag | PageElement) -> str:
+        """Recursively parse an element and its children into a markdown string."""
+        if isinstance(element, NavigableString):
+            return element.strip()
+        elif element.name == 'br':
+            return '\n'
+        else:
+            return ''.join(cls._get_text(child) for child in element.contents)
+
+    @classmethod
+    def _extract_lyrics(cls, html: str) -> Optional[str]:
+        """Extract lyrics from the provided HTML."""
+        soup = BeautifulSoup(html, 'html.parser')
+
+        lyrics_container = soup.find_all('div', {'data-lyrics-container': 'true'})
+
+        if not lyrics_container:
+            return None
+
+        text_parts = []
+        for part in lyrics_container:
+            text_parts.append(cls._get_text(part))
+
+        return '\n'.join(text_parts)
+
     @commands.command(description='Search for some lyrics.')
     @app_commands.describe(song='The song you want to search for.')
     @commands.guild_only()
@@ -961,44 +994,50 @@ class Music(commands.Cog):
                                 delete_after=10)
                 return
 
-        mess = await ctx.send(content=f'\🔎 *Searching lyrics for lyrics...*')
+        mess = await ctx.send(content=f'\🔎 *Searching lyrics for lyrics...*', ephemeral=True)
 
-        headers = {'X-RapidAPI-Key': self.bot.config.rapidapi.api_key,
-                   'X-RapidAPI-Host': self.bot.config.rapidapi.api_host}
+        headers = {
+            'Accept': 'application/json',
+            'Authorization': f'Bearer {self.bot.config.genius.access_token}'
+        }
 
         async with self.bot.session.get(
-                f'https://geniuslyrics-api.p.rapidapi.com/search_songs',
-                headers=headers, params={'song': song or player.current.title}) as resp:
+                f'https://api.genius.com/search', headers=headers,
+                params={'q': song or player.current.title}
+        ) as resp:
             if resp.status != 200:
-                await mess.delete()
-                await ctx.stick(False, 'I cannot find lyrics for the current track.',
-                                ephemeral=True, delete_after=10)
+                await mess.edit(
+                    content=f'{ctx.tick(False)} I cannot find lyrics for the current track.', delete_after=10)
                 return
-            song: dict = (await resp.json())['hits'][0]
+            song: dict = (await resp.json())['response']['hits'][0]['result']
 
-            async with self.bot.session.get(
-                    f'https://geniuslyrics-api.p.rapidapi.com/get_lyrics',
-                    headers=headers, params={'song_id': song['songID']}) as resp:
-                data = await resp.json()
+            song_url = urljoin('https://genius.com', song['path'])
 
-            # TODO: Lyrics Endpoint is currently under maintenance
+            async with self.bot.session.get(song_url) as resp:
+                if resp.status != 200:
+                    await mess.edit(
+                        content=f'{ctx.tick(False)} I cannot find lyrics for the current track.', delete_after=10)
+                    return
+                data = await resp.text()
 
-            if data.get('error'):
-                await ctx.stick(False, 'I cannot find lyrics for the current track.',
-                                ephemeral=True, delete_after=10)
+            lyrics_data = self._extract_lyrics(data)
+
+            if lyrics_data is None:
+                await mess.edit(
+                    content=f'{ctx.tick(False)} I cannot find lyrics for the current track.', delete_after=10)
                 return
 
-                # mapped = list(map(lambda i: str(data['lyrics'])[i: i + 4096], range(0, len(str(data['lyrics'])), 4096)))
-            mapped = []
+            mapped = list(map(lambda i: str(lyrics_data)[i: i + 4096], range(0, len(lyrics_data), 4096)))
             await mess.delete()
 
             class TextPaginator(BasePaginator):
 
                 async def format_page(self, entries: List, /) -> discord.Embed:
-                    embed = discord.Embed(title=song['songTitle'],
+                    embed = discord.Embed(title=song['full_title'],
+                                          url=song_url,
                                           description=entries[0],
                                           colour=helpers.Colour.teal())
-                    embed.set_thumbnail(url=song['songImageURL'])
+                    embed.set_thumbnail(url=song['header_image_url'])
                     return embed
 
             await TextPaginator.start(ctx, entries=mapped, per_page=1, ephemeral=True)

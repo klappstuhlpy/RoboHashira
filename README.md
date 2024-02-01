@@ -58,7 +58,7 @@ postgresql = ''  # Your Postgresql connection string
 
 stat_webhook = ('', '')  # Webhook for discord channel for stats
 
-rapidapi = SimpleNamespace(api_key='', api_host='')  # For lyrics feature
+genius = SimpleNamespace(access_token='')  # For lyrics feature
 wavelink = SimpleNamespace(url='', password='')
 ```
 
