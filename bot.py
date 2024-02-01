@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import logging
 from collections import defaultdict, Counter
+from contextlib import suppress
 from typing import Optional, List, Union, Dict, Iterable, AsyncIterator, Counter, Any, Type, Callable, Coroutine, \
     TYPE_CHECKING
 
@@ -316,30 +317,32 @@ class RoboHashira(commands.Bot):
         await self.process_commands(message)
 
     async def on_command_error(self, ctx: Context, error: commands.CommandError) -> None:
-        if isinstance(error, commands.NoPrivateMessage):
-            await ctx.author.send('This command cannot be used in private messages.')
-        elif isinstance(error, commands.DisabledCommand):
-            await ctx.author.send('Sorry. This command is disabled and cannot be used.')
-        elif isinstance(error, commands.BotMissingPermissions):
-            missing = [perm.replace('_', ' ').replace('guild', 'server').title() for perm in error.missing_permissions]
-            await ctx.send(f'I don\'t have the permissions to perform this action.\n'
-                           f'Missing: `{", ".join(missing)}`')
-        elif isinstance(error, commands.CommandOnCooldown):
-            await ctx.send(
-                f'<:warning:1113421726861238363> Slow down, you\'re on cooldown. Retry again in **{error.retry_after:.2f}s**.')
-        elif isinstance(error, commands.TooManyArguments):
-            await ctx.stick(False, f'You called {ctx.command.name!r} command with too many arguments.')
-        elif isinstance(error, commands.CommandInvokeError):
-            original = error.__cause__
-            if not isinstance(original, discord.HTTPException):
-                log.exception('In %s:', ctx.command.qualified_name, exc_info=original)
-        elif isinstance(error, (
-                commands.ArgumentParsingError, commands.FlagError, commands.BadArgument, commands.CommandError
-        )):
-            await ctx.send(str(error))
-        else:
-            # Handle any other unhandled errors
-            await ctx.stick(False, str(error))
+        # Suppress any Forbidden errors that might arise by sending a message
+        with suppress(discord.errors.Forbidden):
+            if isinstance(error, commands.NoPrivateMessage):
+                await ctx.author.send('This command cannot be used in private messages.')
+            elif isinstance(error, commands.DisabledCommand):
+                await ctx.author.send('Sorry. This command is disabled and cannot be used.')
+            elif isinstance(error, commands.BotMissingPermissions):
+                missing = [perm.replace('_', ' ').replace('guild', 'server').title() for perm in error.missing_permissions]
+                await ctx.send(f'I don\'t have the permissions to perform this action.\n'
+                               f'Missing: `{", ".join(missing)}`')
+            elif isinstance(error, commands.CommandOnCooldown):
+                await ctx.send(
+                    f'<:warning:1113421726861238363> Slow down, you\'re on cooldown. Retry again in **{error.retry_after:.2f}s**.')
+            elif isinstance(error, commands.TooManyArguments):
+                await ctx.stick(False, f'You called {ctx.command.name!r} command with too many arguments.')
+            elif isinstance(error, commands.CommandInvokeError):
+                original = error.__cause__
+                if not isinstance(original, discord.HTTPException):
+                    log.exception('In %s:', ctx.command.qualified_name, exc_info=original)
+            elif isinstance(error, (
+                    commands.ArgumentParsingError, commands.FlagError, commands.BadArgument, commands.CommandError
+            )):
+                await ctx.send(str(error))
+            else:
+                # Handle any other unhandled errors
+                await ctx.stick(False, str(error))
 
     # UTILS
 
