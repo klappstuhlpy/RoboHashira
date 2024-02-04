@@ -2,7 +2,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-from typing import Literal, Optional, Union, List, cast, TYPE_CHECKING
+from contextlib import suppress
+from typing import Literal, Optional, Union, List, cast, TYPE_CHECKING, Annotated
 import datetime
 from urllib.parse import urljoin
 
@@ -11,17 +12,17 @@ import wavelink
 from bs4 import BeautifulSoup, Tag, PageElement, NavigableString
 from discord import app_commands
 
-from discord.ext import tasks
-from discord.ext.commands._types import BotT  # noqa
+from discord.utils import MISSING
 from wavelink import DiscordVoiceCloseType
 
 from launcher import get_logger
-from .utils.context import Context
 from .utils import checks, converters, helpers, commands
+from .utils.constants import VOLUME_REGEX
+from .utils.context import Context, tick
 from .utils.render import Render
-from cogs.utils.player import Player, PlayingState, PlayerPanel
+from .utils.paginator import BasePaginator
+from .utils.player import Player, PlayerState, PlayerPanel
 from bot import RoboHashira
-from cogs.utils.paginator import BasePaginator
 
 if TYPE_CHECKING:
     from .playlist import PlaylistTools
@@ -38,47 +39,35 @@ class PlayFlags(commands.FlagConverter, prefix='--', delimiter=' '):
     force: Optional[bool] = commands.Flag(name='force', aliases=['f'], default=False)
 
 
+class VolumeConverter(commands.Converter):
+    async def convert(self, ctx: Context, argument: str) -> int:
+        player: Player = cast(Player, ctx.voice_client)
+
+        if not (match := VOLUME_REGEX.match(argument)):
+            raise commands.BadArgument(
+                'Invalid Volume provided.\n'
+                'Please provide a valid number between **0-100** or a relative number, e.g. **+10** or **-15**.')
+
+        if match.group().startswith(('+', '-')):
+            return player.volume + int(match.group()[1:])
+        return int(match.group())
+
+
 class Music(commands.Cog):
     """Commands for playing music in a voice channel."""
 
     def __init__(self, bot: RoboHashira):
         self.bot: RoboHashira = bot
-        self.render: Render = Render  # type: ignore
+        self.render = Render
 
     async def cog_check(self, ctx: Context) -> bool:
         if not ctx.guild:
             return False
         return True
 
-    async def cog_before_invoke(self, ctx: Context[BotT]) -> None:
+    async def cog_before_invoke(self, ctx: Context) -> None:
         playlist_tools: PlaylistTools = self.bot.get_cog('PlaylistTools')  # type: ignore
-        await playlist_tools.initizalize_user(ctx.author)  # noqa
-
-    async def cog_load(self) -> None:
-        self.cleanup_players.start()
-
-    def cog_unload(self) -> None:
-        self.cleanup_players.cancel()
-
-    @tasks.loop(hours=2)
-    async def cleanup_players(self):
-        await self.bot.wait_until_ready()
-        node = wavelink.Pool.get_node()
-
-        if not node:
-            return
-
-        inactive = 0
-
-        for player in node.players.values():
-            if player.playing:
-                return
-
-            if not player.playing and len(player.channel.members) == 1:
-                await player.disconnect()
-                inactive += 1
-
-        log.debug(f'Cleaned up {inactive} players.')
+        await playlist_tools.initizalize_user(ctx.author)
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
@@ -107,7 +96,7 @@ class Music(commands.Cog):
 
         if player:
             try:
-                await player.view.update(PlayingState.STOPPED)
+                await player.panel.update(PlayerState.STOPPED)
                 await player.disconnect()
             except Exception as exc:
                 log.debug(f'Error while destroying player: {exc}')
@@ -121,17 +110,29 @@ class Music(commands.Cog):
         logging.info(f'Wavelink Node connected: {payload.node.uri} | Resumed: {payload.resumed}')
 
     @commands.Cog.listener()
+    async def on_wavelink_inactive_player(self, player: Player) -> None:
+        if not player:
+            return
+
+        with suppress(discord.HTTPException):
+            await player.channel.send(
+                f'The player has been inactive for `{player.inactive_timeout}` seconds. *Goodbye!*')
+
+        if player.connected:
+            await player.disconnect()
+
+    @commands.Cog.listener()
     async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload):
         player: Player | None = cast(Player, payload.player)
 
         if not player:
             return
 
-        if player.queue.listen_together.enabled:
+        if player.queue.listen_together is not MISSING:
             member = await self.bot.get_or_fetch_member(
-                player.guild, player.queue.listen_together.user_id)
+                player.guild, player.queue.listen_together)
             if (activity := next((a for a in member.activities if isinstance(a, discord.Spotify)), None)) is None:
-                await player.view.update(PlayingState.STOPPED)
+                await player.panel.update(PlayerState.STOPPED)
                 await player.disconnect()
                 return
 
@@ -139,10 +140,10 @@ class Music(commands.Cog):
                 track = await player.search(activity.track_url)
             except Exception as exc:
                 log.debug(f'Error while searching for track: {exc}')
-                await player.view.channel.send('I couldn\'t find the track you were listening to on Spotify.')
+                await player.panel.channel.send('I couldn\'t find the track you were listening to on Spotify.')
                 return
 
-            player.reset_queue()
+            player.queue.reset()
             await player.queue.put_wait(track)
             await player.play(player.queue.get())
             return await player.send_track_add(track)
@@ -156,9 +157,7 @@ class Music(commands.Cog):
         # the original insert order of tracks in the queue.
         if player.queue.shuffle:
             queue = player.queue.all
-            # Get the next random choosen track out of all songs in the queue
             next_random_track = queue[random.randint(0, len(queue) - 1)]
-            # Apply the new order to the queue
             player.queue.history.clear()
             await player.queue.history.put_wait(queue[:queue.index(next_random_track)])
 
@@ -183,7 +182,7 @@ class Music(commands.Cog):
             # the Playerpanel to be throwing index errors
             await asyncio.sleep(0.1)
 
-        await player.view.update()
+        await player.panel.update()
 
     @commands.Cog.listener()
     async def on_presence_update(self, before: discord.Member, after: discord.Member):
@@ -196,10 +195,10 @@ class Music(commands.Cog):
 
         listen_together = player.queue.listen_together
 
-        if not listen_together.enabled:
+        if listen_together is MISSING:
             return
 
-        if before.id == listen_together.user_id:
+        if before.id == listen_together:
             before_activity = next((a for a in before.activities if isinstance(a, discord.Spotify)), None)
             after_activity = next((a for a in after.activities if isinstance(a, discord.Spotify)), None)
 
@@ -212,21 +211,21 @@ class Music(commands.Cog):
                     (now - start).total_seconds()) * 1000
 
                 await player.seek(position)
-                await player.view.update()
+                await player.panel.update()
             else:
                 await player.stop()
         else:
             before_activity = next((a for a in before.activities if isinstance(a, discord.Spotify)), None)
 
+            human_time = discord.utils.format_dt(
+                datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=22), style='R')
             await player.pause(True)
-            await player.view.channel.send(
+            await player.panel.channel.send(
                 '<a:loading:1072682806360166430> The Host has paused/stopped listening to Spotify.\n'
-                f'*Destroying the session {discord.utils.format_dt(datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=22), style='R')} if the host doesn\'t start listening again.*',
+                f'*Destroying the session {human_time} if the host doesn\'t start listening again.*',
                 delete_after=21)
 
-            timer = 0
-            new_activity = None
-
+            timer, new_activity = 0, None
             while timer < 20:
                 new_activity = next((a for a in after.activities if isinstance(a, discord.Spotify)), None)
                 if new_activity:
@@ -237,14 +236,14 @@ class Music(commands.Cog):
             if new_activity and new_activity.title == before_activity.title:
                 await player.pause(False)
             else:
-                player.reset_queue()
+                player.queue.reset()
 
                 try:
                     track = await player.search(new_activity.track_url)
                 except Exception as exc:
                     log.debug(f'Error while searching for track: {exc}')
-                    await player.view.channel.send(
-                        '<:redTick:1079249771975413910> I couldn\'t find the track you were listening to on Spotify.',
+                    await player.panel.channel.send(
+                        f'{tick(False)} I couldn\'t find the track <@{listen_together}> was listening to on Spotify.',
                         delete_after=10)
                     return
 
@@ -258,7 +257,7 @@ class Music(commands.Cog):
                 await player.seek(position)
 
         if not player.connected:
-            await player.view.channel.send('The host has stopped listening to Spotify.')
+            await player.panel.channel.send('The host has stopped listening to Spotify.')
             await player.disconnect()
 
     async def join(self, obj: discord.Interaction | Context) -> Player:
@@ -276,16 +275,17 @@ class Music(commands.Cog):
                 await channel.create_instance(topic=f'Music by {obj.guild.me.display_name}')
             await obj.guild.me.edit(suppress=False)
 
-        player.view = await PlayerPanel.start(player, channel=obj.channel)
+        player.panel = await PlayerPanel.start(player, channel=obj.channel)
         return player
 
     @commands.command(
         description='Adds a track/playlist to the queue and play the next available track.',
         guild_only=True
     )
-    @app_commands.describe(query='The track/playlist to add to the queue.',
-                           source='The type of search to perform.',
-                           force='Force the track to be added to the queue.')
+    @app_commands.describe(
+        query='The track/playlist to add to the queue.',
+        source='The type of search to perform.',
+        force='Force the track to be added to the queue.')
     @app_commands.choices(
         source=[
             app_commands.Choice(name='YouTube (Default)', value='yt'),
@@ -324,7 +324,7 @@ class Music(commands.Cog):
             return
 
         query = flags.query.strip('<>')
-        result = await player.search(query, flags.source, ctx)
+        result = await player.search(query, source=flags.source, ctx=ctx)
 
         if result is None:
             await ctx.stick(False, 'Sorry! No results found matching your query.',
@@ -332,9 +332,8 @@ class Music(commands.Cog):
             return
 
         if await player.check_blacklist(result):
-            await ctx.send(
-                '<:redTick:1079249771975413910> Blacklisted Track detected. Please try another one.',
-                ephemeral=True, delete_after=10)
+            await ctx.stick(False, 'Blacklisted Track detected. Please try another one.',
+                            ephemeral=True, delete_after=10)
             return
 
         if isinstance(result, wavelink.Playlist):
@@ -354,7 +353,7 @@ class Music(commands.Cog):
         else:
             setattr(result, 'requester', ctx.author)
             if flags.force:
-                player.queue.put_at_front(result)
+                player.queue.put_at(0, result)
             else:
                 await player.queue.put_wait(result)
 
@@ -365,10 +364,10 @@ class Music(commands.Cog):
         elif not player.playing:
             await player.play(player.queue.get(), volume=70)
         else:
-            await player.view.update()
+            await player.panel.update()
 
-    listen_together = app_commands.Group(name='listen-together',
-                                         description='Listen-together related commands.')
+    listen_together = app_commands.Group(
+        name='listen-together', description='Listen-together related commands.')
 
     @commands.command(
         listen_together.command,
@@ -379,8 +378,8 @@ class Music(commands.Cog):
     @app_commands.describe(member='The user you want to start a listen-together activity with.')
     @checks.is_author_connected()
     async def listen_together_start(self, interaction: discord.Interaction, member: discord.Member):
-        """Start a listen-together activity with a user.
-        `!:` Only Supported for Spotify Music."""
+        """Start a listen-together activity with an user.
+        `Note:` Only supported for Spotify Music."""
         if not interaction.guild.voice_client:
             await self.join(interaction)
 
@@ -388,16 +387,17 @@ class Music(commands.Cog):
         if not player:
             return
 
+        # We need to fetch the member to get the current activity
         member = await self.bot.get_or_fetch_member(interaction.guild, member.id)
 
         if not (activity := next((a for a in member.activities if isinstance(a, discord.Spotify)), None)):
             await interaction.response.send_message(
-                '<:redTick:1079249771975413910> The User isn\'t playing anything right now.', ephemeral=True,
+                f'{tick(False)} {member} isn\'t listening to anything right now.', ephemeral=True,
                 delete_after=10)
             return
 
-        if player.playing or player.queue.listen_together.enabled:  # noqa
-            player.reset_queue()
+        if player.playing or player.queue.listen_together is not MISSING:
+            player.queue.reset()
             await player.stop()
 
         player.autoplay = wavelink.AutoPlayMode.disabled
@@ -407,13 +407,13 @@ class Music(commands.Cog):
         except Exception as exc:
             log.debug(f'Error while searching for track: {exc}')
             await interaction.response.send_message(
-                '<:redTick:1079249771975413910> The User isn\'t playing anything right now.', ephemeral=True,
+                f'{tick(False)} The User isn\'t playing anything right now.', ephemeral=True,
                 delete_after=10)
             return
 
         setattr(track, 'requester', interaction.user)
         await player.queue.put_wait(track)
-        player.queue.listen_together = {'state': True, 'user_id': member.id}
+        player.queue.listen_together = member.id
         await player.play(player.queue.get())
 
         poss = round(
@@ -422,6 +422,7 @@ class Music(commands.Cog):
         await player.seek(poss)
 
         await player.send_track_add(track, interaction)
+        await player.panel.update()
 
     @commands.command(
         listen_together.command,
@@ -435,15 +436,15 @@ class Music(commands.Cog):
         if not player:
             return
 
-        if player.queue.listen_together.enabled:
-            await player.view.update(PlayingState.STOPPED)
+        if player.queue.listen_together is not MISSING:
+            await player.panel.update(PlayerState.STOPPED)
             await player.disconnect()
 
             await interaction.response.send_message(
-                f'<:greenTick:1079249732364406854> Stopped the current listen-together activity.', delete_after=10)
+                f'{tick(True)} Stopped the current listen-together activity.', delete_after=10)
         else:
             return await interaction.response.send_message(
-                '<:redTick:1079249771975413910> There is currently no listen-together activity started.',
+                f'{tick(False)} There is currently no listen-together activity started.',
                 ephemeral=True, delete_after=10)
 
     @commands.command(name='connect', description='Connect me to a voice-channel.', guild_only=True)
@@ -472,7 +473,7 @@ class Music(commands.Cog):
         if not player:
             return
 
-        await player.view.update(PlayingState.STOPPED)
+        await player.panel.update(PlayerState.STOPPED)
         await player.disconnect()
         await ctx.stick(True, 'Disconnected Channel and cleaned up the queue.', delete_after=10)
 
@@ -485,7 +486,7 @@ class Music(commands.Cog):
         if not player:
             return
 
-        await player.view.stop()
+        await player.panel.stop()
         await player.disconnect()
         await ctx.stick(True, 'Stopped Track and cleaned up queue.', delete_after=10)
 
@@ -507,7 +508,7 @@ class Music(commands.Cog):
         await ctx.stick(True, f'{'Paused' if player.paused else 'Resumed'} Track '
                               f'[{player.current.title}]({player.current.uri})',
                         delete_after=10, suppress_embeds=True)
-        await player.view.update()
+        await player.panel.update()
 
     @commands.command(description='Sets a loop mode for the plugins.', guild_only=True)
     @app_commands.describe(mode='Select a loop mode.')
@@ -527,7 +528,7 @@ class Music(commands.Cog):
         elif mode == 'Queue':
             player.queue.mode = wavelink.QueueMode.loop_all
 
-        await player.view.update()
+        await player.panel.update()
         await ctx.stick(True, f'Loop Mode changed to `{mode}`', delete_after=10)
 
     @commands.command(description='Sets the shuffle mode for the plugins.', guild_only=True)
@@ -542,7 +543,7 @@ class Music(commands.Cog):
             return
 
         player.queue.shuffle = True if mode == 'True' else False
-        await player.view.update()
+        await player.panel.update()
         await ctx.stick(True, f'Shuffle Mode changed to `{mode}`', delete_after=10)
 
     @commands.command(description='Seek to a specific position in the tack.', guild_only=True)
@@ -580,7 +581,7 @@ class Music(commands.Cog):
         await ctx.stick(True, f'Seeked to position ``{converters.convert_duration(seconds)}``',  # noqa
                         delete_after=10)
 
-        await player.view.update()
+        await player.panel.update()
 
     @seek.autocomplete('position')
     async def seek_autocomplete(self, ctx: Context, current: str) -> list[app_commands.Choice[str]]:
@@ -594,16 +595,17 @@ class Music(commands.Cog):
         except ValueError or TypeError:
             return []
 
-        to_return = [app_commands.Choice(
-            name=datetime.datetime.fromtimestamp(int(seconds), datetime.UTC).strftime('%H:%M:%S'),
-            value=datetime.datetime.fromtimestamp(int(seconds), datetime.UTC).strftime('%H:%M:%S'))]
-        return to_return
+        return [
+            app_commands.Choice(
+                name=datetime.datetime.fromtimestamp(int(seconds), datetime.UTC).strftime('%H:%M:%S'),
+                value=datetime.datetime.fromtimestamp(int(seconds), datetime.UTC).strftime('%H:%M:%S'))
+        ]
 
     @commands.command(description='Set the volume for the plugins.', guild_only=True)
     @app_commands.describe(amount='The volume to set the plugins to. (0-100)')
     @checks.is_author_connected()
     @checks.is_player_playing()
-    async def volume(self, ctx: Context, amount: Optional[str] = None):
+    async def volume(self, ctx: Context, amount: Optional[Annotated[int, VolumeConverter]] = None):
         """Set the volume for the plugins."""
         player: Player = cast(Player, ctx.voice_client)
         if not player:
@@ -611,62 +613,35 @@ class Music(commands.Cog):
 
         if amount is None:
             embed = discord.Embed(title=f'Current Volume', color=helpers.Colour.teal())
-            embed.add_field(name=f'Volume:',
-                            value=f'```swift\n{converters.VisualStamp(0, 100, player.volume)} [ {player.volume}% ]```',
-                            inline=False)
+            embed.add_field(
+                name=f'Volume:',
+                value=f'```swift\n{converters.VisualStamp(0, 100, player.volume)} [ {player.volume}% ]```',
+                inline=False)
             await ctx.send(embed=embed, delete_after=10)
             return
 
-        def valid_volume(vol: str):
-            if vol.startswith('+') or vol.startswith('-'):
-                if vol[1:].isdigit():
-                    return True
-            else:
-                if vol.isdigit():
-                    return True
-            return False
-
-        if not valid_volume(amount):
-            embed = discord.Embed(
-                title='Invalid Input',
-                description=f'<:redTick:1079249771975413910> The Input `{amount}` is not a valid Volume Input.\n'
-                            'Please use one of the following',
-                color=discord.Color.red())
-            embed.add_field(name='Increase the Volume:', value='```swift\ne.g. +54```')
-            embed.add_field(name='Decrease the Volume:', value='```swift\ne.g. -24```')
-            embed.add_field(name='Set the Volume:', value='```swift\ne.g. 23```')
-            await ctx.send(embed=embed, ephemeral=True, delete_after=10)
-            return
-
-        def format_vol(vol: str):
-            if vol.startswith('+'):
-                return player.volume + int(vol[1:])
-            elif vol.startswith('-'):
-                return player.volume - int(vol[1:])
-            else:
-                return int(vol)
-
-        await player.set_volume(format_vol(amount))
-        await player.view.update()
+        await player.set_volume(amount)
+        await player.panel.update()
 
         embed = discord.Embed(title=f'Changed Volume', color=helpers.Colour.teal(),
                               description='*It may takes a while for the changes to apply.*')
-        embed.add_field(name=f'Volume:',
-                        value=f'```swift\n{converters.VisualStamp(0, 100, player.volume)} [ {player.volume}% ]```',
-                        inline=False)
+        embed.add_field(
+            name=f'Volume:',
+            value=f'```swift\n{converters.VisualStamp(0, 100, player.volume)} [ {player.volume}% ]```',
+            inline=False)
         await ctx.send(embed=embed, delete_after=10)
 
     @commands.command(description='Removes all songs from users that are not in the voice channel.', guild_only=True)
     @checks.is_author_connected()
     @checks.is_player_playing()
-    async def leftcleanup(self, ctx: Context):
+    async def cleanupleft(self, ctx: Context):
         """Removes all songs from users that are not in the voice channel."""
         player: Player = cast(Player, ctx.voice_client)
         if not player:
             return
 
-        await player.delete_from_left()
-        await player.view.update()
+        await player.cleanup()
+        await player.panel.update()
         await ctx.stick(True, 'Cleaned up the queue.', delete_after=10)
 
     @commands.command(
@@ -680,9 +655,15 @@ class Music(commands.Cog):
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @commands.command(filter.command, name='equalizer', description='Set the equalizer for the current Track.')
-    @app_commands.describe(band='The Band you want to change. (1-15)',
-                           gain='The Gain you want to set. (-0.25-+1.0')
+    @commands.command(
+        filter.command,
+        name='equalizer',
+        description='Set the equalizer for the current Track.'
+    )
+    @app_commands.describe(
+        band='The Band you want to change. (1-15)',
+        gain='The Gain you want to set. (-0.25-+1.0)'
+    )
     @checks.is_author_connected()
     @checks.is_player_playing()
     async def filter_equalizer(
@@ -841,7 +822,7 @@ class Music(commands.Cog):
         if not player:
             return
 
-        if not player.queue.future_is_empty:
+        if not player.queue.is_empty:
             await ctx.stick(True, 'An admin or DJ has to the next track.', delete_after=10)
             await player.skip()
         else:
@@ -870,8 +851,11 @@ class Music(commands.Cog):
                                 ephemeral=True, delete_after=10)
                 return
 
-            player.queue.put_at_front(player.queue.all[position - 1])
-            player.queue.all.pop(position - 1)
+            success = player.jump_to(position - 1)
+            if not success:
+                await ctx.stick(False, 'Failed to jump to the specified track.',
+                                ephemeral=True, delete_after=10)
+                return
 
             await player.stop()
 
@@ -898,10 +882,11 @@ class Music(commands.Cog):
             index = player.queue.all.index(player.current) - 1
             track_to_revert = player.queue.all[index]
 
-            player.queue.put_at_front(track_to_revert)
-            player.queue.put_at_index(index + 1, player.current)
-            await player.queue.history.delete(index)
-            await player.queue.history.delete(index)
+            player.queue.put_at(0, track_to_revert)
+            player.queue.put_at(index + 1, player.current)
+
+            for _ in range(2):
+                player.queue.history.delete(index)
 
             await player.stop()
         else:
@@ -923,7 +908,6 @@ class Music(commands.Cog):
         await ctx.defer()
 
         class QueuePaginator(BasePaginator):
-
             @staticmethod
             def fmt(track: wavelink.Playable, index: int) -> str:
                 return (
@@ -953,7 +937,9 @@ class Music(commands.Cog):
                 embed.set_footer(text=f'Total: {len(player.queue.all)} • History: {len(player.queue.history) - 1}')
                 return embed
 
-        await QueuePaginator.start(ctx, entries=player.queue, per_page=30)
+        await QueuePaginator.start(ctx, entries=list(player.queue), per_page=30)
+
+    # Lyrics Stuff
 
     @classmethod
     def _get_text(cls, element: Tag | PageElement) -> str:
@@ -1007,31 +993,30 @@ class Music(commands.Cog):
         ) as resp:
             if resp.status != 200:
                 await mess.edit(
-                    content=f'{ctx.tick(False)} I cannot find lyrics for the current track.', delete_after=10)
+                    content=f'{tick(False)} I cannot find lyrics for the current track.', delete_after=10)
                 return
             song: dict = (await resp.json())['response']['hits'][0]['result']
 
             song_url = urljoin('https://genius.com', song['path'])
 
-            async with self.bot.session.get(song_url) as resp:
-                if resp.status != 200:
+            async with self.bot.session.get(song_url) as res:
+                if res.status != 200:
                     await mess.edit(
-                        content=f'{ctx.tick(False)} I cannot find lyrics for the current track.', delete_after=10)
+                        content=f'{tick(False)} I cannot find lyrics for the current track.', delete_after=10)
                     return
-                data = await resp.text()
+                data = await res.text()
 
             lyrics_data = self._extract_lyrics(data)
 
             if lyrics_data is None:
                 await mess.edit(
-                    content=f'{ctx.tick(False)} I cannot find lyrics for the current track.', delete_after=10)
+                    content=f'{tick(False)} I cannot find lyrics for the current track.', delete_after=10)
                 return
 
             mapped = list(map(lambda i: str(lyrics_data)[i: i + 4096], range(0, len(lyrics_data), 4096)))
             await mess.delete()
 
             class TextPaginator(BasePaginator):
-
                 async def format_page(self, entries: List, /) -> discord.Embed:
                     embed = discord.Embed(title=song['full_title'],
                                           url=song_url,

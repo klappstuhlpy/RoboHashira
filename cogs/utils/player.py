@@ -7,16 +7,16 @@ from typing import TYPE_CHECKING, Any, Optional, List, Generic, Type, TypeVar
 import discord
 import wavelink
 import yarl
-from discord import Message, TextChannel, PartialEmoji
 from discord.ext import commands
 from discord.utils import MISSING
+from wavelink import QueueMode
 
 from cogs.utils import formats, helpers
 from cogs.utils.formats import truncate
 from cogs.config import GuildConfig
 from cogs.utils import converters
-from cogs.utils.context import Context
-from cogs.utils.queue import Queue
+from cogs.utils.context import Context, tick
+from cogs.utils.queue import Queue, ShuffleMode
 from launcher import get_logger
 
 if TYPE_CHECKING:
@@ -38,17 +38,17 @@ def to_emoji(index: int) -> str:
 
 EMOJI_KEYS = {
     'shuffle': {
-        True: discord.PartialEmoji(name='shuffle', id=1068273347919630417),
-        False: discord.PartialEmoji(name='shuffleNone', id=1068273345507905607)
+        ShuffleMode.on: discord.PartialEmoji(name='shuffle', id=1068273347919630417),
+        ShuffleMode.off: discord.PartialEmoji(name='shuffleNone', id=1068273345507905607)
     },
     'pause_play': {
         True: '⏸️',
         False: '▶️'
     },
     'loop': {
-        True: discord.PartialEmoji(name='repeatTrack', id=1066048250529972355),
-        False: discord.PartialEmoji(name='repeatAll', id=1066048247585575002),
-        None: discord.PartialEmoji(name='repeatNone', id=1066048246235013231)
+        QueueMode.loop: discord.PartialEmoji(name='repeatTrack', id=1066048250529972355),
+        QueueMode.loop_all: discord.PartialEmoji(name='repeatAll', id=1066048247585575002),
+        QueueMode.normal: discord.PartialEmoji(name='repeatNone', id=1066048246235013231)
     },
     'like': {
         True: discord.PartialEmoji(name='liked', id=1183539703333535764),
@@ -57,56 +57,64 @@ EMOJI_KEYS = {
 }
 
 
-def source_emoji(source: str) -> PartialEmoji:
-    return {'youtube': PartialEmoji(name='YouTube', id=1066146818884382770),
-            'spotify': PartialEmoji(name='spotify', id=1066177938858455090),
-            'soundcloud': PartialEmoji(name='soundcloud', id=1066184529452204093)
-            }.get(source, PartialEmoji(name='offline', id=1085666365689573438))
+def source_emoji(source: str) -> discord.PartialEmoji:
+    return {
+        'youtube': discord.PartialEmoji(name='YouTube', id=1066146818884382770),
+        'spotify': discord.PartialEmoji(name='spotify', id=1066177938858455090),
+        'soundcloud': discord.PartialEmoji(name='soundcloud', id=1066184529452204093)
+    }.get(source, discord.PartialEmoji(name='offline', id=1085666365689573438))
 
 
-class PlayingState(enum.Enum):
+class PlayerState(enum.Enum):
     PLAYING = 1
     PAUSED = 2
     STOPPED = 3
 
 
 class Player(wavelink.Player):
-    """Custom Wavelink Player class."""
+    """Custom mdded-wavelink Player class."""
 
     def __init__(self, bot: RoboHashira):
         super().__init__()
         self.bot: RoboHashira = bot
 
-        self.view: PlayerPanel = MISSING
-        self.queue = Queue()
+        self.panel: PlayerPanel = MISSING
+        self.queue: Queue = Queue()
 
         self.dj: discord.Member | discord.abc.User = self.bot.user
 
     @property
     def connected(self) -> bool:
+        """Returns True if the player is connected to a voice channel."""
         return self.channel is not None
 
-    def reset_queue(self) -> None:
-        self.queue = Queue()
-
-    async def check_blacklist(self, result: wavelink.Playable | wavelink.Playlist) -> bool:
-        """Returns True if the track is on the blacklist."""
-        blacklisted_urls = {record['url'] for record in
-                            await self.bot.pool.fetch('SELECT url FROM track_blacklist')}
-        if isinstance(result, wavelink.Playlist):
-            return any(track.uri in blacklisted_urls for track in result.tracks)
-        else:
-            return result.uri in blacklisted_urls
-
+    @classmethod
     async def search(
-            self,
+            cls,
             query: str,
+            *,
             source: wavelink.TrackSource | str = wavelink.TrackSource.YouTubeMusic,
             ctx: Optional[discord.Interaction, Context] = None,
             return_first: bool = False
     ) -> wavelink.Playable | wavelink.Playlist | None:
-        """Searches for a keyword/url on YouTube, Spotify, or SoundCloud."""
+        """Searches for a keyword/url on YouTube, Spotify, or SoundCloud.
 
+        Parameters
+        ----------
+        query : str
+            The keyword or URL to search for.
+        source : wavelink.TrackSource | str
+            The source to search from.
+        ctx : Optional[discord.Interaction, Context]
+            The context of the command.
+        return_first : bool
+            Whether to return the first result if it's a list.
+
+        Returns
+        -------
+        wavelink.Playable | wavelink.Playlist | None
+            The result of the search.
+        """
         check = yarl.URL(query)
         is_url = bool(check and check.host and check.scheme)
 
@@ -133,19 +141,63 @@ class Player(wavelink.Player):
 
         return results
 
+    async def check_blacklist(self, result: wavelink.Playable | wavelink.Playlist) -> bool:
+        """Returns True if the track is on the blacklist."""
+        BLACKLISTED = {
+            record['url'] for record in await self.bot.pool.fetch('SELECT url FROM track_blacklist')
+        }
+        if isinstance(result, wavelink.Playlist):
+            return any(track.uri in BLACKLISTED for track in result.tracks)
+        else:
+            return result.uri in BLACKLISTED
+
     async def disconnect(self, **kwargs) -> None:
         """Disconnects the player from the voice channel."""
         if self.playing:
             await self.stop()
 
-        if self.view is not MISSING:
-            await self.view.stop()
+        if self.panel is not MISSING:
+            await self.panel.stop()
 
         await super().disconnect(**kwargs)
 
+    async def cleanup(self):
+        """Removes all tracks from the queue that are not in the voice channel."""
+        listeners = self.channel.members
+
+        for i, track in enumerate(self.queue.history):
+            if track.requester not in listeners:  # noqa
+                self.queue.history.delete(i)
+
+        for i, track in enumerate(self.queue):
+            if track.requester not in listeners:  # noqa
+                self.queue.delete(i)
+                if self.current == track:
+                    await self.stop()
+
+    def jump_to(self, index: int) -> bool:
+        """Jumps to a specific track in the queue.
+
+        Parameters
+        ----------
+        index : int
+            The index to jump to.
+
+        Returns
+        -------
+        bool
+            Whether the jump was successful.
+        """
+        if index < 0 or index >= len(self.queue.all):
+            return False
+
+        self.queue.put_at(0, self.queue.all[index])
+        self.queue.delete(index + 1)
+        return True
+
     async def send_track_add(
             self, track: wavelink.Playable, obj: Optional[Context | discord.Interaction] = None
-    ) -> Message | None | Any:
+    ) -> discord.Message | None | Any:
         embed = discord.Embed(
             title='Track Enqueued',
             description=f'`🎶` Added [{track.title}]({track.uri}) to the queue.\n'
@@ -157,7 +209,7 @@ class Player(wavelink.Player):
             embed.set_thumbnail(url=track.artwork)
 
         if not obj:
-            return await self.view.channel.send(embed=embed)
+            return await self.panel.channel.send(embed=embed)
 
         embed.set_footer(text=f'Requested by {obj.user}', icon_url=obj.user.display_avatar.url)
 
@@ -168,20 +220,6 @@ class Player(wavelink.Player):
                 return await obj.followup.send(embed=embed, delete_after=15)
             else:
                 return await obj.response.send_message(embed=embed, delete_after=15)
-
-    async def delete_from_left(self):
-        """Deletes all tracks from a member in the queue."""
-        listeners = self.channel.members
-
-        for i, track in enumerate(self.queue.history):
-            if track.requester not in listeners:  # noqa
-                await self.queue.history.delete(i)
-
-        for i, track in enumerate(self.queue):
-            if track.requester not in listeners:  # noqa
-                await self.queue.delete(i)
-                if self.current == track:
-                    await self.stop()
 
 
 class PlayerPanel(discord.ui.View, Generic[T]):
@@ -196,11 +234,12 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         The bot instance.
     """
 
-    def __init__(self, *, player: Player, state: PlayingState) -> None:
+    def __init__(self, *, player: Player, state: PlayerState) -> None:
         super().__init__(timeout=None)
-        self.player: Player = player
         self.bot: RoboHashira = player.bot
-        self.state: PlayingState = state
+
+        self.player: Player = player
+        self.state: PlayerState = state
 
         self.msg: discord.Message = MISSING
         self.channel: discord.TextChannel = MISSING
@@ -211,7 +250,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
 
     @property
     def build_message(self) -> dict[str, Any]:
-        if self.state == PlayingState.PLAYING:
+        if self.state == PlayerState.PLAYING:
             track = self.player.current
 
             embed = discord.Embed(
@@ -247,34 +286,39 @@ class PlayerPanel(discord.ui.View, Generic[T]):
                     inline=False
                 )
 
-            if self.player.queue.listen_together.enabled:
-                user = self.player.guild.get_member(self.player.queue.listen_together.user_id)
+            if self.player.queue.listen_together is not MISSING:
+                user = self.player.guild.get_member(self.player.queue.listen_together)
                 embed.add_field(name='╠ Listening-together with:', value=f'{user.mention}\'s Spotify', inline=False)
 
-            embed.add_field(name='╠ Status:',
-                            value=f'```swift\n{formats.player_stamp(track.length, self.player.position)}```'
-                            if not track.is_stream else '```swift\n[ 🔴 LIVE STREAM ]```',
-                            inline=False)
+            embed.add_field(
+                name='╠ Status:',
+                value=f'```swift\n{formats.player_stamp(track.length, self.player.position)}```'
+                if not track.is_stream else '```swift\n[ 🔴 LIVE STREAM ]```',
+                inline=False)
 
-            embed.add_field(name='╠ Loop Mode:', value=str(self.player.queue.mode).split('.')[1].upper())
-            embed.add_field(name='═ Shuffle Mode:',
-                            value={False: '<:off1:1077001786184974356> **``Off``**',
-                                   True: '<:on1:1077001788051423293> **``On``**'}.get(self.player.queue.shuffle))
-            embed.add_field(name=f'╠ Volume:',
-                            value=f'```swift\n{converters.VisualStamp(0, 100, self.player.volume)} [ {self.player.volume}% ]```',
-                            inline=False)
+            loop_mode = self.player.queue.mode.name.replace('_', ' ').upper()
+            embed.add_field(name='╠ Loop Mode:', value=f'`{loop_mode}`')
+            embed.add_field(
+                name='═ Shuffle Mode:',
+                value={
+                    ShuffleMode.off: '<:off1:1077001786184974356> **``Off``**',
+                    ShuffleMode.on: '<:on1:1077001788051423293> **``On``**'
+                }.get(self.player.queue.shuffle))
+            embed.add_field(
+                name=f'╠ Volume:',
+                value=f'```swift\n{converters.VisualStamp(0, 100, self.player.volume)} [ {self.player.volume}% ]```',
+                inline=False)
 
             if track.recommended:
                 embed.add_field(name='╠ Recommended via:',
                                 value=f'{source_emoji(track.source)} **`{track.source.title()}`**',
                                 inline=False)
 
-            if not self.player.queue.future_is_empty:
-                next_track = self.player.queue[0]
+            if upcomming := self.player.queue.loaded:
                 eta = discord.utils.utcnow() + datetime.timedelta(
                     milliseconds=(self.player.current.length - self.player.position))
                 embed.add_field(name='╠ Next Track:',
-                                value=f'[{next_track.title}]({next_track.uri}) {discord.utils.format_dt(eta, 'R')}')
+                                value=f'[{upcomming.title}]({upcomming.uri}) {discord.utils.format_dt(eta, 'R')}')
 
             if artwork := self.player.current.artwork:
                 embed.set_thumbnail(url=artwork)
@@ -300,7 +344,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         return {'embed': embed, 'view': self}
 
     def disabled_state(self, check: bool = None) -> bool:
-        return check or bool(self.state == PlayingState.STOPPED) or self.player.queue.all_is_empty
+        return check or bool(self.state == PlayerState.STOPPED) or self.player.queue.all_is_empty
 
     def update_buttons(self):
         button_updates = [
@@ -308,10 +352,8 @@ class PlayerPanel(discord.ui.View, Generic[T]):
             (self.on_back, self.disabled_state(self.player.queue.history_is_empty), None),
             (self.on_pause_play, self.disabled_state(), EMOJI_KEYS['pause_play'][
                 True if not self.player.paused and self.player.playing else False]),
-            (self.on_forward, self.disabled_state(self.player.queue.future_is_empty), None),
-            (self.on_loop, self.disabled_state(), EMOJI_KEYS['loop'][
-                True if self.player.queue.mode == wavelink.QueueMode.loop else False
-                if self.player.queue.mode == wavelink.QueueMode.loop_all else None]),
+            (self.on_forward, self.disabled_state(self.player.queue.is_empty), None),
+            (self.on_loop, self.disabled_state(), EMOJI_KEYS['loop'][self.player.queue.mode]),
             (self.on_stop, self.disabled_state(), None),
             (self.on_volume, self.disabled_state(), None),
             (self.on_like, self.disabled_state(), None)
@@ -330,7 +372,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
 
         if retry_after := self.cooldown.update_rate_limit(interaction):
             await interaction.response.send_message(
-                f'<:redTick:1079249771975413910> You are being rate limited. Try again in {retry_after:.2f} seconds.',
+                f'{tick(False)} You are being rate limited. Try again in **{retry_after:.2f}** seconds.',
                 ephemeral=True
             )
             return False
@@ -341,33 +383,33 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         if author_vc and bot_vc and (author_vc == bot_vc) and (
                 interaction.user.voice.deaf or interaction.user.voice.self_deaf):
             await interaction.response.send_message(
-                '<:redTick:1079249771975413910> You are deafened, please undeafen yourself to use this menu.',
+                f'{tick(False)} You are deafened, please undeafen yourself to use this menu.',
                 ephemeral=True
             )
             return False
         elif (not author_vc and bot_vc) or (author_vc and bot_vc and author_vc != bot_vc):
             await interaction.response.send_message(
-                f'<:redTick:1079249771975413910> You must be in {bot_vc.mention} to use this menu.',
+                f'{tick(False)} You must be in {bot_vc.mention} to use this menu.',
                 ephemeral=True
             )
             return False
         elif not author_vc:
             await interaction.response.send_message(
-                '<:redTick:1079249771975413910> You must be in a voice channel to use this menu.',
+                f'{tick(False)} You must be in a voice channel to use this menu.',
                 ephemeral=True
             )
             return False
 
         return True
 
-    async def fetch_player_channel(self, channel: Optional[discord.TextChannel] = None) -> Optional[TextChannel]:
+    async def fetch_player_channel(self, channel: Optional[discord.TextChannel] = None) -> Optional[discord.TextChannel]:
         """Gets the channel where the player is currently playing."""
         config: GuildConfig = await self.bot.cfg.get_config(self.player.guild.id)
 
         self.channel = self.player.guild.get_channel(config.music_channel) if config.music_channel else channel
         return self.channel
 
-    async def get_player_message(self) -> Optional[Message]:
+    async def get_player_message(self) -> Optional[discord.Message]:
         """Gets the message of the current plugin's control panel."""
         config: GuildConfig = await self.bot.cfg.get_config(self.player.guild.id)
 
@@ -382,11 +424,11 @@ class PlayerPanel(discord.ui.View, Generic[T]):
 
         return self.msg
 
-    async def update(self, state: PlayingState = PlayingState.PLAYING) -> Message:
+    async def update(self, state: PlayerState = PlayerState.PLAYING) -> discord.Message | None | Any:
         self.state = state
         self.update_buttons()
 
-        # Only await if get_player_message has side effects or the result is needed
+        # Only awaits if `get_player_message` has side effects or the result is needed
         await self.get_player_message()
 
         if self.msg is not MISSING:
@@ -397,22 +439,23 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         return self.msg
 
     async def stop(self) -> None:
-        self.player.reset_queue()
+        self.player.queue.reset()
         self.update_buttons()
-        await self.update(PlayingState.STOPPED)
+        await self.update(PlayerState.STOPPED)
 
         super().stop()
 
     @discord.ui.button(
         style=discord.ButtonStyle.grey,
-        emoji=EMOJI_KEYS['shuffle'][False],
+        emoji=EMOJI_KEYS['shuffle'][ShuffleMode.off],
         disabled=True
     )
     async def on_shuffle(self, interaction: discord.Interaction, button: discord.ui.Button):  # noqa
-        if self.player.queue.shuffle:
-            self.player.queue.shuffle = False
-        else:
-            self.player.queue.shuffle = True
+        TOGGLE = {
+            ShuffleMode.off: ShuffleMode.on,
+            ShuffleMode.on: ShuffleMode.off
+        }
+        self.player.queue.shuffle = TOGGLE.get(self.player.queue.shuffle)
 
         self.update_buttons()
         await interaction.response.edit_message(**self.build_message)
@@ -426,10 +469,11 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         index = self.player.queue.all.index(self.player.current) - 1
         track_to_revert = self.player.queue.all[index]
 
-        self.player.queue.put_at_front(track_to_revert)
-        self.player.queue.put_at_index(index + 1, self.player.current)
-        await self.player.queue.history.delete(index)
-        await self.player.queue.history.delete(index)
+        self.player.queue.put_at(0, track_to_revert)
+        self.player.queue.put_at(index + 1, self.player.current)
+
+        for _ in range(2):
+            self.player.queue.history.delete(index)
 
         self.update_buttons()
         await interaction.response.edit_message(**self.build_message)
@@ -456,16 +500,16 @@ class PlayerPanel(discord.ui.View, Generic[T]):
 
     @discord.ui.button(
         style=discord.ButtonStyle.grey,
-        emoji=EMOJI_KEYS['loop'][None],
+        emoji=EMOJI_KEYS['loop'][QueueMode.normal],
         disabled=True
     )
     async def on_loop(self, interaction: discord.Interaction, button: discord.ui.Button):  # noqa
-        transitions = {
-            wavelink.QueueMode.normal: wavelink.QueueMode.loop,
-            wavelink.QueueMode.loop: wavelink.QueueMode.loop_all,
-            wavelink.QueueMode.loop_all: wavelink.QueueMode.normal,
+        TRANSITIONS = {
+            QueueMode.normal: QueueMode.loop,
+            QueueMode.loop: QueueMode.loop_all,
+            QueueMode.loop_all: QueueMode.normal,
         }
-        self.player.queue.mode = transitions.get(self.player.queue.mode)
+        self.player.queue.mode = TRANSITIONS.get(self.player.queue.mode)
 
         self.update_buttons()
         await interaction.response.edit_message(**self.build_message)
@@ -480,7 +524,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         await self.stop()
         await self.player.disconnect()
         await interaction.response.send_message(
-            f'<:greenTick:1079249732364406854> Stopped Track and cleaned up queue.',
+            f'{tick(True)} Stopped Track and cleaned up queue.',
             delete_after=10)
 
     @discord.ui.button(
@@ -511,12 +555,12 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         if self.player.current.uri not in liked_songs:
             await liked_songs.add_track(self.player.current)
             await interaction.response.send_message(
-                f'<:greenTick:1079249732364406854> Added `{self.player.current.title}` to your liked songs.',
+                f'{tick(True)} Added `{self.player.current.title}` to your liked songs.',
                 ephemeral=True)
         else:
             await liked_songs.remove_track(discord.utils.get(liked_songs.tracks, url=self.player.current.uri))
             await interaction.response.send_message(
-                f'<:greenTick:1079249732364406854> Removed `{self.player.current.title}` from your liked songs.',
+                f'{tick(True)} Removed `{self.player.current.title}` from your liked songs.',
                 ephemeral=True)
 
         playlist_tools.get_playlists.invalidate(playlist_tools, interaction.user.id)
@@ -527,7 +571,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
             player: Player,
             *,
             channel: discord.TextChannel,
-            state: PlayingState = PlayingState.STOPPED,
+            state: PlayerState = PlayerState.STOPPED,
     ) -> PlayerPanel[T]:
         """|coro|
 
@@ -539,7 +583,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
             The player to use for the panel.
         channel: :class:`discord.TextChannel`
             The channel to send the panel to. Only used if no configuration for the guild is found.
-        state: :class:`PlayingState`
+        state: :class:`PlayerState`
             The state of the player.
 
         Returns
@@ -557,9 +601,9 @@ class PlayerPanel(discord.ui.View, Generic[T]):
 
 class AdjustVolumeModal(discord.ui.Modal, title='Volume Adjuster'):
     """Modal that prompts users for the volume to change to."""
-    number = discord.ui.TextInput(label='Volume Index', style=discord.TextStyle.short,
-                                  placeholder='Enter a Number between 1 and 100',
-                                  min_length=1, max_length=3)
+    number = discord.ui.TextInput(
+        label='Volume - %', style=discord.TextStyle.short, placeholder='Enter a Number between 1 and 100',
+        min_length=1, max_length=3)
 
     def __init__(self, _view: PlayerPanel, /):
         super().__init__(timeout=30)
@@ -635,10 +679,11 @@ class TrackDisambiguatorView(discord.ui.View, Generic[T]):
             for i, track in enumerate(tracks)
         )
 
-        embed = discord.Embed(title='Select a Track',
-                              description=description,
-                              timestamp=datetime.datetime.now(datetime.UTC),
-                              color=context.client.colour.teal())  # noqa
+        embed = discord.Embed(
+            title='Choose a Track',
+            description=description,
+            timestamp=datetime.datetime.now(datetime.UTC),
+            color=helpers.Colour.teal())
         embed.set_footer(text=context.user, icon_url=context.user.avatar.url)
 
         self.message = await context.send(embed=embed, view=self)
