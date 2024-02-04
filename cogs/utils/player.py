@@ -161,7 +161,7 @@ class Player(wavelink.Player):
 
         await super().disconnect(**kwargs)
 
-    async def cleanup(self):
+    async def cleanupleft(self):
         """Removes all tracks from the queue that are not in the voice channel."""
         listeners = self.channel.members
 

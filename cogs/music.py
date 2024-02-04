@@ -128,6 +128,9 @@ class Music(commands.Cog):
         if not player:
             return
 
+        if player.panel.state is PlayerState.STOPPED:
+            return
+
         if player.queue.listen_together is not MISSING:
             member = await self.bot.get_or_fetch_member(
                 player.guild, player.queue.listen_together)
@@ -640,7 +643,7 @@ class Music(commands.Cog):
         if not player:
             return
 
-        await player.cleanup()
+        await player.cleanupleft()
         await player.panel.update()
         await ctx.stick(True, 'Cleaned up the queue.', delete_after=10)
 
