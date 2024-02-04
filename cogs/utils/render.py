@@ -1,16 +1,22 @@
-import abc
 from io import BytesIO
 from pathlib import Path
 from typing import Dict, Optional
 
 from PIL import Image, ImageDraw, ImageFont
+from PIL.ImageFont import FreeTypeFont
 
-PATH = str(Path(__file__).parent.parent.parent.absolute() / 'assets')
+from cogs.utils import cache
+from cogs.utils.constants import BOT_BASE_FOLDER
 
-GINTO_BOLD_28 = ImageFont.truetype(PATH + '/GintoBold.otf', 28)
+BASE_PATH = Path(BOT_BASE_FOLDER, 'assets')
 
 
-class Render(abc.ABCMeta):
+@cache.cache()
+def GINTO_BOLD(size: int) -> FreeTypeFont:
+    return ImageFont.truetype(str(Path(BASE_PATH, 'GintoBold.otf')), size)
+
+
+class Render:
     """A class for rendering images."""
 
     temp_payload: Dict[str, float] = {}
@@ -21,7 +27,7 @@ class Render(abc.ABCMeta):
 
     @classmethod
     def generate_eq_image(cls, payload: list[float]) -> BytesIO:
-        reference_image = Image.open(PATH + 'generic_eq.png')
+        reference_image = Image.open(str(Path(BASE_PATH, 'eq_template.png')))
 
         image = Image.new('RGB', reference_image.size, 'white')
         draw = ImageDraw.Draw(image)
@@ -56,9 +62,8 @@ class Render(abc.ABCMeta):
 
             draw.line([(x1, y1), (x2, y2)], fill='white', width=1, joint='curve')
 
-        font = ImageFont.truetype(PATH + 'Ginto-Bold.otf', 28)
         x = 356 - len('EQ') * (len('EQ') // 2)
-        draw.text((x, 29), 'EQ', font=font, fill='white')
+        draw.text((x, 29), 'EQ', font=GINTO_BOLD(28), fill='white')
 
         buffer = BytesIO()
         image.save(buffer, 'png')
@@ -92,7 +97,13 @@ class Render(abc.ABCMeta):
         return text_width, text_height
 
     @classmethod
-    def generate_bar_chart(cls, data: dict[str, int], title: Optional[str] = None) -> list[bytes]:
+    def generate_bar_chart(
+            cls,
+            data: dict[str, int | float],
+            title: Optional[str] = None,
+            merge: bool = False,
+            to_buffer: bool = True
+    ) -> list[Image.Image] | list[bytes] | bytes:
         """Generate a bar chart image from a dictionary of data.
 
         Parameters
@@ -102,6 +113,10 @@ class Render(abc.ABCMeta):
             Data must follow the format of {str: int}.
         title : Optional[str], optional
             The title of the bar chart, by default None
+        merge : bool, optional
+            Whether to merge the images into one, by default False
+        to_buffer : bool, optional
+            Whether to return a list of bytes or a list of PIL images, by default True
         """
         BAR_HEIGHT = 25
         BAR_COLOR = (227, 38, 54)
@@ -133,12 +148,12 @@ class Render(abc.ABCMeta):
             image = Image.new('RGB', (int(chart_width), int(chart_height)), color=0x1A1A1A)
             draw = ImageDraw.Draw(image)
 
-            font = ImageFont.truetype(PATH + '/GintoBold.otf', int(LABEL_FONT_SIZE * scale_factor))
+            font = GINTO_BOLD(int(LABEL_FONT_SIZE * scale_factor))
             max_label_width = max([cls.get_text_dimensions(label, font=font)[0] for label in subset_data.keys()])
             max_value_width = max([cls.get_text_dimensions(str(value), font=font)[0] for value in subset_data.values()])
 
             if title:
-                title_font = ImageFont.truetype(PATH + '/GintoBold.otf', int(LABEL_FONT_SIZE * scale_factor * 1.5))
+                title_font = GINTO_BOLD(int(LABEL_FONT_SIZE * scale_factor * 1.5))
                 title_bbox = draw.textbbox((0, 0), title, font=title_font)
                 title_width = title_bbox[2] - title_bbox[0]
                 title_height = title_bbox[3] - title_bbox[1]
@@ -199,9 +214,33 @@ class Render(abc.ABCMeta):
 
                 y += BAR_HEIGHT + LABEL_PADDING
 
-            buffer = BytesIO()
-            image.save(buffer, 'png')
-            buffer.seek(0)
-            images.append(buffer.read())
+            if merge:
+                images.append(image)
+            else:
+                buffer = BytesIO()
+                image.save(buffer, 'png')
+                buffer.seek(0)
+                images.append(buffer.read())
+
+        if merge:
+            # Add the images together among the y-axis
+            return cls.add_images_yaxis(images, to_buffer=to_buffer)
 
         return images
+
+    @classmethod
+    def add_images_yaxis(cls, images: list[Image.Image], to_buffer: bool = False) -> Image.Image | bytes:
+        """Add the images together among the y-axis."""
+        final_image = Image.new('RGB', (images[0].width, sum(image.height for image in images)))
+        y_positions = 0
+        for i, image in enumerate(images):
+            final_image.paste(image, (0, y_positions))
+            y_positions += image.height
+
+        if to_buffer:
+            buffer = BytesIO()
+            final_image.save(buffer, 'png')
+            buffer.seek(0)
+            return buffer.read()
+
+        return final_image

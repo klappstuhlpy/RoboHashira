@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import datetime
 import enum
 import json
@@ -524,8 +525,8 @@ class TimeMesh(Protocol):
     A = TypeVar('A', bound='TimeMesh')
 
     def __init__(self):
-        self._start = None
-        self._end = None
+        self._start: time.time = None
+        self._end: time.time = None
 
     def __enter__(self) -> A:
         self._start = time.perf_counter()

@@ -13,7 +13,7 @@ from asyncpg import Connection, Pool
 from discord import Message, Embed, File, GuildSticker, StickerItem, AllowedMentions, MessageReference, PartialMessage
 from discord.context_managers import Typing
 from discord.ext import commands
-from discord.ext.commands.context import DeferTyping
+from discord.ext.commands.context import DeferTyping  # noqa
 from discord.utils import MISSING
 from discord.ui import View
 
@@ -102,7 +102,7 @@ class ConfirmationView(discord.ui.View):
             await self.message.delete()
 
     @discord.ui.button(label='Confirm', style=discord.ButtonStyle.green)
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):  # noqa
         self.value = True
         await interaction.response.defer()
         if self.delete_after:
@@ -111,7 +111,7 @@ class ConfirmationView(discord.ui.View):
         self.stop()
 
     @discord.ui.button(label='Cancel', style=discord.ButtonStyle.red)
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):  # noqa
         self.value = False
         await interaction.response.defer()
         if self.delete_after:

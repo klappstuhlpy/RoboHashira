@@ -103,7 +103,7 @@ class Stats(commands.Cog):
         self.process = psutil.Process()
 
         self._batch_lock = asyncio.Lock()
-        self._data_batch: list[DataBatchEntry] = []
+        self._command_data_batch: list[DataBatchEntry] = []
 
         self.bulk_insert_loop.add_exception_type(asyncpg.PostgresConnectionError)
         self.bulk_insert_loop.start()
@@ -111,7 +111,7 @@ class Stats(commands.Cog):
         self._logging_queue = asyncio.Queue()
         self.logging_worker.start()
 
-        self.render: Render = Render  # type: ignore
+        self.render = Render
 
     @property
     def display_emoji(self) -> discord.PartialEmoji:
@@ -134,12 +134,12 @@ class Stats(commands.Cog):
             )
         """
 
-        if self._data_batch:
-            await self.bot.pool.execute(query, self._data_batch)
-            total = len(self._data_batch)
+        if self._command_data_batch:
+            await self.bot.pool.execute(query, self._command_data_batch)
+            total = len(self._command_data_batch)
             if total > 1:
                 log.info('Registered %s commands to the database.', total)
-            self._data_batch.clear()
+            self._command_data_batch.clear()
 
     def cog_unload(self):
         self.bulk_insert_loop.stop()
@@ -178,7 +178,7 @@ class Stats(commands.Cog):
 
         log.info(f'{message.created_at.replace(tzinfo=None)}: {message.author} in {destination}: {content}')
         async with self._batch_lock:
-            self._data_batch.append(
+            self._command_data_batch.append(
                 {
                     'guild': guild_id,
                     'channel': ctx.channel.id,
@@ -364,7 +364,8 @@ class Stats(commands.Cog):
                   f'Memory: {memory_usage:.2f} MiB | {psutil.virtual_memory().percent}%\n'
                   f'Disk: {psutil.disk_usage(str(Path(__file__).parent.parent)).percent}%```')
 
-        embed.set_footer(text=f'Made with discord.py v{discord.__version__}', icon_url='http://i.imgur.com/5BFecvA.png')
+        embed.set_footer(text=f'Made with discord.py v{discord.__version__}',
+                         icon_url='https://images.klappstuhl.me/gallery/UYzvwImyRS.png')
         embed.timestamp = discord.utils.utcnow()
         await ctx.send(embed=embed)
 
@@ -805,7 +806,7 @@ class Stats(commands.Cog):
         msg = textwrap.shorten(f'{emoji} {discord.utils.format_dt(dt, style='F')} {record.message}', width=1990)
         if record.name == 'discord.gateway':
             username = 'Gateway'
-            avatar_url = 'https://i.imgur.com/74UqM1Z.png'  # https://i.imgur.com/4PnCKB3.png
+            avatar_url = 'https://images.klappstuhl.me/gallery/mTuDFXPDrx.png'
         else:
             username = f'{record.name} Logger'
             avatar_url = discord.utils.MISSING
@@ -869,7 +870,7 @@ class Stats(commands.Cog):
         embed.add_field(name='Inner Tasks', value=f'Total: {len(inner_tasks)}\nFailed: {bad_inner_tasks or 'None'}')
         embed.add_field(name='Events Waiting', value=f'Total: {len(event_tasks)}', inline=False)
 
-        command_waiters = len(self._data_batch)
+        command_waiters = len(self._command_data_batch)
         is_locked = self._batch_lock.locked()
         description.append(f'Commands Waiting: {command_waiters}, Batch Locked: {is_locked}')
 
@@ -967,7 +968,7 @@ class Stats(commands.Cog):
     @commands.is_owner()
     async def list_tasks(self, ctx: Context):
         """List all tasks."""
-        tasks = asyncio.all_tasks(loop=self.bot.loop)
+        _tasks = asyncio.all_tasks(loop=self.bot.loop)
         table = formats.TabularData()
         table.set_columns(['Memory ID', 'Name', 'Object'])
 
@@ -976,7 +977,7 @@ class Stats(commands.Cog):
 
         table.add_rows(
             (strip_memory_id(str(task.get_coro())), task.get_name(), str(task.get_coro()).split(' ')[2]) for task in
-            tasks)
+            _tasks)
         render = table.render()
         render = re.sub(r'```\w?.*', '', render, re.RegexFlag.M)
 
@@ -1257,7 +1258,7 @@ class Stats(commands.Cog):
 old_on_error = commands.Bot.on_error
 
 
-async def on_error(self: RoboHashira, event: str, *args: Any, **kwargs: Any) -> None:
+async def on_error(self: RoboHashira, event: str, *args: Any, **kwargs: Any) -> None:  # noqa
     (exc_type, exc, tb) = sys.exc_info()
     if isinstance(exc, commands.CommandInvokeError):
         return
