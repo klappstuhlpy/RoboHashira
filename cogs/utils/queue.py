@@ -1,5 +1,4 @@
 import enum
-from typing import List
 
 import wavelink
 from discord.utils import MISSING
@@ -36,9 +35,9 @@ class Queue(wavelink.Queue):
         super().reset()
 
     @property
-    def all(self) -> List[wavelink.Playable]:
+    def all(self) -> list[wavelink.Playable]:
         """Returns a list of all tracks in the queue and history without duplicates."""
-        return list(formats.merge(self.history, self._items))
+        return list(formats.merge(self.history._items, self._items))
 
     @property
     def duration(self) -> int:

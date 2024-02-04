@@ -6,6 +6,7 @@ from typing import Callable, TypeVar
 import discord
 from discord import Forbidden, NotFound, app_commands
 from discord.ext import commands
+from discord.utils import MISSING
 from fuzzywuzzy.string_processing import StringProcessor
 
 from ..utils.context import GuildContext, Context
@@ -66,7 +67,7 @@ def asciionly(s: str | bytes) -> str:
     if PY3:
         return s.translate(translation_table)
     else:
-        return s.translate(None, bad_chars)
+        return s.translate(None, bytes(bad_chars, 'utf-8'))
 
 
 def asciidammit(s: str) -> str | bytes:
@@ -150,10 +151,9 @@ def is_listen_together():
     """Checks if a listen together activity is active."""
     async def predicate(ctx):
         if ctx.voice_client:
-            if ctx.voice_client.queue.listen_together.enabled:
-                await ctx.send(
-                    '<:redTick:1079249771975413910> Please stop the listen-together activity before use this Command.',
-                    ephemeral=True)
+            if ctx.voice_client.queue.listen_together is not MISSING:
+                await ctx.stick(
+                    False, f'Please stop the listen-together activity before use this Command.', ephemeral=True)
                 return False
         return True
 
@@ -172,23 +172,15 @@ def is_author_connected():
             return True
         if (author_vc and bot_vc) and (author_vc == bot_vc):
             if ctx.user.voice.deaf or ctx.user.voice.self_deaf:
-                await ctx.send(
-                    "<:redTick:1079249771975413910> You are deafened, please undeafen yourself to use this command.",
-                    ephemeral=True
-                )
+                await ctx.stick(
+                    False, f'You are deafened, please undeafen yourself to use this command.', ephemeral=True)
                 return False
             return True
         if (not author_vc and bot_vc) or (author_vc and bot_vc):
-            await ctx.send(
-                f"<:redTick:1079249771975413910> You must be in {bot_vc.mention} to use this command.",
-                ephemeral=True
-            )
+            await ctx.stick(False, f'You must be in {bot_vc.mention} to use this command.', ephemeral=True)
             return False
         if not author_vc:
-            await ctx.send(
-                "<:redTick:1079249771975413910> You must be in a voice channel to use this command.",
-                ephemeral=True
-            )
+            await ctx.stick(False, f'You must be in a voice channel to use this command.', ephemeral=True)
             return False
         return True
 
@@ -203,9 +195,7 @@ def isDJorAdmin():
 
             if djRole in ctx.author.roles or ctx.author.guild_permissions.administrator:
                 return True
-            await ctx.send(
-                '<:redTick:1079249771975413910> You need to be an Admin or DJ to use this Command.',
-                ephemeral=True)
+            await ctx.stick(False, f'You need to be an Admin or DJ to use this Command.', ephemeral=True)
             return False
 
     return commands.check(predicate)

@@ -153,9 +153,6 @@ class Player(wavelink.Player):
 
     async def disconnect(self, **kwargs) -> None:
         """Disconnects the player from the voice channel."""
-        if self.playing:
-            await self.stop()
-
         if self.panel is not MISSING and self.panel.state != PlayerState.STOPPED:
             await self.panel.stop()
 
@@ -163,19 +160,31 @@ class Player(wavelink.Player):
 
     async def cleanupleft(self):
         """Removes all tracks from the queue that are not in the voice channel."""
-        listeners = self.channel.members
-
-        for i, track in enumerate(self.queue.history):
-            if track.requester not in listeners:  # noqa
-                self.queue.history.delete(i)
-
-        for i, track in enumerate(self.queue):
-            if track.requester not in listeners:  # noqa
-                self.queue.delete(i)
+        for track in self.queue.all:  # type: Any
+            if track.requester not in self.channel.members:
                 if self.current == track:
                     await self.stop()
 
-    def jump_to(self, index: int) -> bool:
+                if track in self.queue.history:
+                    self.queue.history.remove(track)
+                else:
+                    self.queue.remove(track)
+
+    async def back(self) -> bool:
+        """Goes back to the previous track in the queue."""
+        if self.queue.history_is_empty:
+            return False
+
+        current_track = self.queue.history._items.pop()  # noqa
+        track_to_revert = self.queue.history._items.pop()  # noqa
+
+        self.queue.put_at(0, track_to_revert)
+        self.queue.put_at(1, current_track)
+
+        await self.stop()
+        return True
+
+    async def jump_to(self, index: int) -> bool:
         """Jumps to a specific track in the queue.
 
         Parameters
@@ -191,8 +200,14 @@ class Player(wavelink.Player):
         if index < 0 or index >= len(self.queue.all):
             return False
 
-        self.queue.put_at(0, self.queue.all[index])
-        self.queue.delete(index + 1)
+        tracks_to_queue = self.queue.all[index:]
+        tracks_to_history = self.queue.all[:index]
+
+        self.queue.clear()
+        await self.queue.put_wait(tracks_to_queue)
+
+        self.queue.history.clear()
+        await self.queue.history.put_wait(tracks_to_history)
         return True
 
     async def send_track_add(
@@ -314,7 +329,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
                                 value=f'{source_emoji(track.source)} **`{track.source.title()}`**',
                                 inline=False)
 
-            if upcomming := self.player.queue.loaded:
+            if not self.player.queue.is_empty and (upcomming := self.player.queue.peek(0)):
                 eta = discord.utils.utcnow() + datetime.timedelta(
                     milliseconds=(self.player.current.length - self.player.position))
                 embed.add_field(name='╠ Next Track:',
@@ -465,18 +480,8 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         disabled=True
     )
     async def on_back(self, interaction: discord.Interaction, button: discord.ui.Button):  # noqa
-        index = self.player.queue.all.index(self.player.current) - 1
-        track_to_revert = self.player.queue.all[index]
-
-        self.player.queue.put_at(0, track_to_revert)
-        self.player.queue.put_at(index + 1, self.player.current)
-
-        for _ in range(2):
-            self.player.queue.history.delete(index)
-
-        self.update_buttons()
-        await interaction.response.edit_message(**self.build_message)
-        await self.player.stop()
+        await interaction.response.edit_message(view=self)
+        await self.player.back()
 
     @discord.ui.button(
         style=discord.ButtonStyle.blurple,
@@ -494,7 +499,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         disabled=True
     )
     async def on_forward(self, interaction: discord.Interaction, button: discord.ui.Button):  # noqa
-        await interaction.response.edit_message(**self.build_message)
+        await interaction.response.edit_message(view=self)
         await self.player.skip()
 
     @discord.ui.button(
@@ -520,7 +525,6 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         disabled=True
     )
     async def on_stop(self, interaction: discord.Interaction, button: discord.ui.Button):  # noqa
-        await self.stop()
         await self.player.disconnect()
         await interaction.response.send_message(
             f'{tick(True)} Stopped Track and cleaned up queue.',
