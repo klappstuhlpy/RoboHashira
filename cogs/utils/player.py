@@ -156,7 +156,7 @@ class Player(wavelink.Player):
         if self.playing:
             await self.stop()
 
-        if self.panel is not MISSING:
+        if self.panel is not MISSING and self.panel.state != PlayerState.STOPPED:
             await self.panel.stop()
 
         await super().disconnect(**kwargs)
@@ -440,7 +440,6 @@ class PlayerPanel(discord.ui.View, Generic[T]):
 
     async def stop(self) -> None:
         self.player.queue.reset()
-        self.update_buttons()
         await self.update(PlayerState.STOPPED)
 
         super().stop()
