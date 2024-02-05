@@ -18,7 +18,7 @@ from cogs import EXTENSIONS
 from cogs.config import Config as ConfigCog
 from cogs.utils import helpers
 from cogs.utils.config import Config
-from cogs.utils.context import Context, tick
+from cogs.utils.context import Context
 
 if TYPE_CHECKING:
     from launcher import get_logger
@@ -230,7 +230,6 @@ class RoboHashira(commands.Bot):
 
         try:
             nodes = [wavelink.Node(uri=self.config.wavelink.uri, password=self.config.wavelink.password)]
-
             await wavelink.Pool.connect(nodes=nodes, client=self, cache_capacity=100)
         except Exception as exc:
             log.error('Failed to establish a lavalink connection', exc_info=exc)

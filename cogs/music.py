@@ -180,78 +180,63 @@ class Music(commands.Cog):
 
         await player.panel.update()
 
+    @staticmethod
+    def _get_spotify_activity(member: discord.Member) -> Optional[discord.Spotify]:
+        return next((a for a in member.activities if isinstance(a, discord.Spotify)), None)
+
     @commands.Cog.listener()
     async def on_presence_update(self, before: discord.Member, after: discord.Member):
         await self.bot.wait_until_ready()
-
         player: Player | None = cast(Player, before.guild.voice_client)
 
         if not player:
             return
 
-        listen_together = player.queue.listen_together
-
-        if listen_together is MISSING:
+        user_id = player.queue.listen_together
+        if user_id is MISSING:
             return
 
-        if before.id == listen_together:
-            before_activity = next((a for a in before.activities if isinstance(a, discord.Spotify)), None)
-            after_activity = next((a for a in after.activities if isinstance(a, discord.Spotify)), None)
+        before_activity = self._get_spotify_activity(before)
+        after_activity = self._get_spotify_activity(after)
 
-            if before_activity and after_activity and before_activity.title == after_activity.title:
+        if before.id != user_id:
+            return
+
+        if before_activity and after_activity:
+            if before_activity.title == after_activity.title:
                 now = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
                 start = after_activity.start.replace(tzinfo=None)
                 end = after_activity.end.replace(tzinfo=None)
 
-                position = round((end - now).total_seconds()) * 1000 if now > end else round(
-                    (now - start).total_seconds()) * 1000
+                deter = (end - now).total_seconds() if now > end else (now - start).total_seconds()
+                position = round(deter) * 1000
 
                 await player.seek(position)
                 await player.panel.update()
             else:
-                await player.stop()
+                new_activity = self._get_spotify_activity(after)
+                if new_activity and new_activity.title == before_activity.title:
+                    await player.pause(False)
+                else:
+                    player.queue.reset()
+
+                    try:
+                        track = await player.search(new_activity.track_url)
+                    except Exception as exc:
+                        log.debug(f'Error while searching for track: {exc}')
+                        return await player.panel.channel.send(
+                            f'{tick(False)} I couldn\'t find the track <@{user_id}> was listening to on spotify.',
+                            delete_after=10)
+
+                    await player.queue.put_wait(track)
+                    await player.send_track_add(track)
+                    await player.play(player.queue.get())
+
+                    position = round(
+                        (datetime.datetime.now(datetime.UTC) - new_activity.start.replace(
+                            tzinfo=None)).total_seconds()) * 1000
+                    await player.seek(position)
         else:
-            before_activity = next((a for a in before.activities if isinstance(a, discord.Spotify)), None)
-
-            human_time = discord.utils.format_dt(
-                datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=22), style='R')
-            await player.pause(True)
-            await player.panel.channel.send(
-                '<a:loading:1072682806360166430> The Host has paused/stopped listening to Spotify.\n'
-                f'*Destroying the session {human_time} if the host doesn\'t start listening again.*',
-                delete_after=21)
-
-            timer, new_activity = 0, None
-            while timer < 20:
-                new_activity = next((a for a in after.activities if isinstance(a, discord.Spotify)), None)
-                if new_activity:
-                    break
-                await asyncio.sleep(1)
-                timer += 1
-
-            if new_activity and new_activity.title == before_activity.title:
-                await player.pause(False)
-            else:
-                player.queue.reset()
-
-                try:
-                    track = await player.search(new_activity.track_url)
-                except Exception as exc:
-                    log.debug(f'Error while searching for track: {exc}')
-                    return await player.panel.channel.send(
-                        f'{tick(False)} I couldn\'t find the track <@{listen_together}> was listening to on Spotify.',
-                        delete_after=10)
-
-                await player.queue.put_wait(track)
-                await player.send_track_add(track)
-                await player.play(player.queue.get())
-
-                position = round(
-                    (datetime.datetime.now(datetime.UTC) - new_activity.start.replace(
-                        tzinfo=None)).total_seconds()) * 1000
-                await player.seek(position)
-
-        if not player.connected:
             await player.panel.channel.send('The host has stopped listening to Spotify.')
             await player.disconnect()
 
