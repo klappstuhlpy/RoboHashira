@@ -22,7 +22,7 @@ from .utils.context import Context, tick
 from .utils.queue import ShuffleMode
 from .utils.render import Render
 from .utils.paginator import BasePaginator
-from .utils.player import Player, PlayerPanel
+from .utils.player import Player, PlayerPanel, SearchReturn
 from bot import RoboHashira
 
 if TYPE_CHECKING:
@@ -243,10 +243,8 @@ class Music(commands.Cog):
     async def join(self, obj: discord.Interaction | Context) -> Player:
         channel = obj.user.voice.channel if obj.user.voice else None  # type: ignore
         if not channel:
-            if isinstance(obj, Context):
-                raise commands.BadArgument('You need to be in a voice channel or provide one to connect to.')
-            else:
-                raise app_commands.AppCommandError('You need to be in a voice channel or provide one to connect to.')
+            func = app_commands.AppCommandError if isinstance(obj, discord.Interaction) else commands.BadArgument
+            func('You need to be in a voice channel or provide one to connect to.')
 
         player = await channel.connect(cls=Player(self.bot), self_deaf=True)
 
@@ -270,7 +268,8 @@ class Music(commands.Cog):
         source=[
             app_commands.Choice(name='YouTube (Default)', value='yt'),
             app_commands.Choice(name='Spotify', value='sp'),
-            app_commands.Choice(name='SoundCloud', value='sc')])
+            app_commands.Choice(name='SoundCloud', value='sc')]
+    )
     @checks.is_author_connected()
     @checks.is_listen_together()
     async def play(self, ctx: Context, *, flags: PlayFlags):
@@ -283,7 +282,10 @@ class Music(commands.Cog):
         `source:` The Streaming Source you want to search for. Defaults to YouTube.
         `force:` Whether to force the track to be added to the front of the queue.
         """
-        # TODO: Remove YouTube for Source when Bot gets verified
+        player: Player = cast(Player, ctx.voice_client)
+        if not player:
+            player = await self.join(ctx)
+
         sources = {
             'yt': wavelink.TrackSource.YouTubeMusic,
             'sp': 'spsearch',
@@ -291,23 +293,19 @@ class Music(commands.Cog):
         }
         flags.source = sources.get(flags.source, wavelink.TrackSource.YouTubeMusic)
 
-        player: Player = cast(Player, ctx.voice_client)
-
-        if not player:
-            player = await self.join(ctx)
-
         player.autoplay = wavelink.AutoPlayMode.enabled
 
         if not flags.query:
             return await ctx.stick(False, 'Please provide a search query.', ephemeral=True,
                                    delete_after=10)
 
-        query = flags.query.strip('<>')
-        result = await player.search(query, source=flags.source, ctx=ctx)
+        result = await player.search(flags.query, source=flags.source, ctx=ctx)
 
-        if result is None:
-            return await ctx.stick(False, 'Sorry! No results found matching your query.',
-                                   ephemeral=True, delete_after=10)
+        if isinstance(result, SearchReturn):
+            if result == SearchReturn.NO_RESULTS:
+                await ctx.stick(False, 'Sorry! No results found matching your query.',
+                                       ephemeral=True, delete_after=10)
+            return
 
         if await player.check_blacklist(result):
             return await ctx.stick(False, 'Blacklisted Track detected. Please try another one.',
@@ -325,6 +323,7 @@ class Music(commands.Cog):
                                   color=helpers.Colour.teal())
             if result.artwork:
                 embed.set_thumbnail(url=result.artwork)
+
             embed.set_footer(text=f'Requested by: {ctx.author}', icon_url=ctx.author.display_avatar.url)
             await ctx.send(embed=embed, delete_after=15)
         else:
@@ -386,7 +385,7 @@ class Music(commands.Cog):
                 f'{tick(False)} The User isn\'t playing anything right now.', ephemeral=True,
                 delete_after=10)
 
-        setattr(track, 'requester', interaction.user)
+        track.track_extras(requester=interaction.user)
         await player.queue.put_wait(track)
         player.queue.listen_together = member.id
         await player.play(player.queue.get())
@@ -935,7 +934,8 @@ class Music(commands.Cog):
                                 delete_after=10)
                 return
 
-        mess = await ctx.send(content=f'\🔎 *Searching lyrics for lyrics...*', ephemeral=True)
+        song = song or f'{player.current.title} by {player.current.author}'
+        mess = await ctx.send(content=f'\🔎 *Searching lyrics for {song}...*', ephemeral=True)
 
         headers = {
             'Accept': 'application/json',
@@ -943,44 +943,43 @@ class Music(commands.Cog):
         }
 
         async with self.bot.session.get(
-                f'https://api.genius.com/search', headers=headers,
-                params={'q': song or player.current.title}
+                'https://api.genius.com/search', headers=headers, params={
+                    'q': song.replace('by', '').replace('from', '').strip()
+                }
         ) as resp:
             if resp.status != 200:
-                await mess.edit(
+                return await mess.edit(
                     content=f'{tick(False)} I cannot find lyrics for the current track.', delete_after=10)
-                return
-            song: dict = (await resp.json())['response']['hits'][0]['result']
 
-            song_url = urljoin('https://genius.com', song['path'])
+            data = (await resp.json())['response']['hits'][0]['result']
+            song_url = urljoin('https://genius.com', data['path'])
 
-            async with self.bot.session.get(song_url) as res:
-                if res.status != 200:
-                    await mess.edit(
-                        content=f'{tick(False)} I cannot find lyrics for the current track.', delete_after=10)
-                    return
-                data = await res.text()
-
-            lyrics_data = self._extract_lyrics(data)
-
-            if lyrics_data is None:
-                await mess.edit(
+        async with self.bot.session.get(song_url) as res:
+            if res.status != 200:
+                return await mess.edit(
                     content=f'{tick(False)} I cannot find lyrics for the current track.', delete_after=10)
-                return
 
-            mapped = list(map(lambda i: str(lyrics_data)[i: i + 4096], range(0, len(lyrics_data), 4096)))
-            await mess.delete()
+            html = await res.text()
 
-            class TextPaginator(BasePaginator):
-                async def format_page(self, entries: List, /) -> discord.Embed:
-                    embed = discord.Embed(title=song['full_title'],
-                                          url=song_url,
-                                          description=entries[0],
-                                          colour=helpers.Colour.teal())
-                    embed.set_thumbnail(url=song['header_image_url'])
-                    return embed
+        lyrics_data = self._extract_lyrics(html)
 
-            await TextPaginator.start(ctx, entries=mapped, per_page=1, ephemeral=True)
+        if lyrics_data is None:
+            return await mess.edit(
+                content=f'{tick(False)} I cannot find lyrics for the current track.', delete_after=10)
+
+        mapped = list(map(lambda i: str(lyrics_data)[i: i + 4096], range(0, len(lyrics_data), 4096)))
+
+        class TextPaginator(BasePaginator):
+            async def format_page(self, entries: List, /) -> discord.Embed:
+                embed = discord.Embed(title=data['full_title'],
+                                      url=song_url,
+                                      description=entries[0],
+                                      colour=helpers.Colour.teal())
+                embed.set_thumbnail(url=data['header_image_url'])
+                return embed
+
+        await mess.delete()
+        await TextPaginator.start(ctx, entries=mapped, per_page=1, ephemeral=True)
 
 
 async def setup(bot: RoboHashira):
