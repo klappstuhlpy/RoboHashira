@@ -307,7 +307,7 @@ class Music(commands.Cog):
                                        ephemeral=True, delete_after=10)
             return
 
-        if await player.check_blacklist(result):
+        if await player.check_blacklist(result, pool=self.bot.pool):
             return await ctx.stick(False, 'Blacklisted Track detected. Please try another one.',
                                    ephemeral=True, delete_after=10)
 

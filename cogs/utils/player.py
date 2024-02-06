@@ -5,6 +5,7 @@ import datetime
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any, Optional, List, Generic, Type, TypeVar
 
+import asyncpg
 import discord
 import wavelink
 import yarl
@@ -152,10 +153,13 @@ class Player(wavelink.Player):
 
         return results
 
-    async def check_blacklist(self, result: wavelink.Playable | wavelink.Playlist) -> bool:
+    @classmethod
+    async def check_blacklist(
+            cls, result: wavelink.Playable | wavelink.Playlist, *, pool: Optional[asyncpg.Pool]
+    ) -> bool:
         """Returns True if the track is on the blacklist."""
         BLACKLISTED = {
-            record['url'] for record in await self.bot.pool.fetch('SELECT url FROM track_blacklist')
+            record['url'] for record in await pool.fetch('SELECT url FROM track_blacklist')
         }
         if isinstance(result, wavelink.Playlist):
             return any(track.uri in BLACKLISTED for track in result.tracks)
