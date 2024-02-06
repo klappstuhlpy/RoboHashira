@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import traceback
 from contextlib import suppress
 from typing import Literal, Optional, Union, List, cast, TYPE_CHECKING, Annotated
 import datetime
@@ -519,7 +520,7 @@ class Music(commands.Cog):
         await ctx.stick(True, f'Shuffle Mode changed to `{mode}`', delete_after=10)
 
     @commands.command(description='Seek to a specific position in the tack.', guild_only=True)
-    @app_commands.describe(position='The position to seek to. (Format: HH:MM:SS)')
+    @app_commands.describe(position='The position to seek to. (Format: H:M:S or S)')
     @checks.is_author_connected()
     @checks.is_player_playing()
     @checks.is_listen_together()
@@ -539,10 +540,10 @@ class Music(commands.Cog):
             try:
                 seconds = sum(int(x) * 60 ** i for i, x in enumerate(reversed(position.split(':'))))
             except ValueError:
-                return await ctx.stick(False, 'Please provide a valid timestamp format. (e.g. 3:20)', ephemeral=True)
+                return await ctx.stick(False, 'Please provide a valid timestamp format. (e.g. 3:20, 23)', ephemeral=True)
 
-            seconds = int(seconds) * 1000
-            if seconds in range(int(player.current.length)):
+            seconds *= 1000  # Convert to milliseconds
+            if seconds in range(player.current.length):
                 await player.seek(seconds)
             else:
                 return await ctx.stick(
@@ -550,26 +551,30 @@ class Music(commands.Cog):
                     ephemeral=True, delete_after=10)
 
         await ctx.stick(
-            True, f'Seeked to position ``{converters.convert_duration(seconds)}``', delete_after=10)
+            True, f'Seeked to position `{converters.convert_duration(seconds)}`', delete_after=10)
         await player.panel.update()
 
     @seek.autocomplete('position')
-    async def seek_autocomplete(self, ctx: Context, current: str) -> list[app_commands.Choice[str]]:
-        player: Player = cast(Player, ctx.voice_client)
+    async def seek_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        player: Player = cast(Player, interaction.guild.voice_client)
         if not player:
             return []
 
-        try:
-            seconds = sum(
-                int(x.strip('""')) * 60 ** inT for inT, x in enumerate(reversed(current.split(':'))))
-        except ValueError or TypeError:
-            return []
+        def _timestamp(secs: int) -> str:
+            return datetime.datetime.fromtimestamp(secs, datetime.UTC).strftime('%H:%M:%S')
 
-        return [
-            app_commands.Choice(
-                name=datetime.datetime.fromtimestamp(int(seconds), datetime.UTC).strftime('%H:%M:%S'),
-                value=datetime.datetime.fromtimestamp(int(seconds), datetime.UTC).strftime('%H:%M:%S'))
-        ]
+        try:
+            seconds = sum(int(x.strip('""')) * 60 ** inT for inT, x in enumerate(reversed(current.split(':'))))
+        except ValueError:
+            # Return a list of 3 choice timestamps -> track length, 1/3, 2/3
+            length = player.current.length / 1000  # Convert to seconds
+            return [
+                app_commands.Choice(name=_timestamp(int(length / 3)), value=str(int(length / 3))),
+                app_commands.Choice(name=_timestamp(int(length / 3 * 2)), value=str(int(length / 3 * 2)))
+            ]
+
+        timestamp = _timestamp(seconds)
+        return [app_commands.Choice(name=timestamp, value=timestamp)]
 
     @commands.command(description='Set the volume for the plugins.', guild_only=True)
     @app_commands.describe(amount='The volume to set the plugins to. (0-100)')
