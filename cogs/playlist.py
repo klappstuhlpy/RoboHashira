@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import datetime
-from typing import Optional, List, Any, Type, cast
+from typing import Optional, List, Any, Type, cast, Union, Annotated
 
 import wavelink
 import discord
 from discord import app_commands
-from discord.ext.commands._types import BotT
 from wavelink import Playable
 
 from .music import Music
@@ -19,9 +18,39 @@ from cogs.utils.paginator import BasePaginator, TextSource
 from .utils.helpers import PostgresItem
 
 
+class PlaylistNameOrID(commands.clean_content):
+    """Converts the content to either an integer or string."""
+
+    def __init__(self, *, lower: bool = False, with_id: bool = False):
+        self.lower: bool = lower
+        self.with_id: bool = with_id
+        super().__init__()
+
+    async def convert(self, ctx: Context, argument: str) -> str | int:
+        converted = await super().convert(ctx, argument)
+        lower = converted.lower().strip()
+
+        if not lower:
+            raise commands.BadArgument('Please enter a valid tag name' + ' or id.' if self.with_id else '.')
+
+        if len(lower) > 100:
+            raise commands.BadArgument(
+                f'Tag names must be 100 characters or less. (You have *{len(lower)}* characters)')
+
+        cog: PlaylistTools = ctx.bot.get_cog('PlaylistTools')  # noqa
+        if cog is None:
+            raise commands.BadArgument('Tags are currently unavailable.')
+
+        if self.with_id:
+            if converted and converted.isdigit():
+                return int(converted)
+
+        return converted.strip() if not self.lower else lower
+
+
 class PlaylistSelect(discord.ui.Select):
     def __init__(self, playlists: list[Playlist], paginator: PlaylistPaginator):
-        self.paginator = paginator
+        self.paginator: PlaylistPaginator = paginator
         options = [
             discord.SelectOption(
                 label='Start Page',
@@ -41,7 +70,9 @@ class PlaylistSelect(discord.ui.Select):
 
         self.paginator._current_page = 0
         self.paginator.update_buttons()
-        await interaction.response.edit_message(**self.paginator._message_kwargs(self.paginator.pages[0]))
+        await interaction.response.edit_message(
+            **self.paginator._message_kwargs(self.paginator.pages[0])  # noqa
+        )
 
 
 class PlaylistPaginator(BasePaginator):
@@ -196,7 +227,7 @@ class PlaylistTools(commands.Cog):
     def display_emoji(self) -> discord.PartialEmoji:
         return discord.PartialEmoji(name='staff_animated', id=1076911514193231974)
 
-    async def cog_before_invoke(self, ctx: Context[BotT]) -> None:
+    async def cog_before_invoke(self, ctx: Context) -> None:
         await self.initizalize_user(ctx.author)
 
     async def initizalize_user(self, user: discord.abc.User | discord.Member) -> int | None:
@@ -216,7 +247,7 @@ class PlaylistTools(commands.Cog):
         self.get_playlists.invalidate(self, user.id)
         return record
 
-    async def playlist_id_autocomplete(
+    async def playlist_autocomplete(
             self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
         playlists = await self.get_playlists(interaction.user.id)
@@ -231,33 +262,54 @@ class PlaylistTools(commands.Cog):
             app_commands.Choice(name=get_shortened_string(length, start, playlist.choice_text), value=playlist.id)
             for length, start, playlist in results[:20]]
 
-    async def get_playlist(self, playlist_id: int, pass_tracks: bool = False) -> Optional[Playlist]:
+    async def _get_playlist_tracks(self, playlist_id: int) -> list[PlaylistTrack]:
+        query = "SELECT * FROM playlist_lookup WHERE playlist_id=$1;"
+        records = await self.bot.pool.fetch(query, playlist_id)
+        return [PlaylistTrack(record=record) for record in records]
+
+    async def get_playlist(
+            self,
+            ctx: Context | discord.Interaction,
+            name_or_id: str | int,
+            *,
+            pass_tracks: bool = False
+    ) -> Optional[Playlist]:
         """Gets a poll by ID."""
-        record = await self.bot.pool.fetchrow("SELECT * FROM playlist WHERE id=$1;", playlist_id)
+        if isinstance(name_or_id, int):
+            args = (name_or_id,)
+            query = "SELECT * FROM playlist WHERE id = $1;"
+        else:
+            query = "SELECT * FROM playlist WHERE LOWER(name) = $1 AND user_id = $2;"
+            args = (name_or_id.lower(), ctx.user.id)
+
+        record = await self.bot.pool.fetchrow(query, *args)
         playlist = Playlist(self, record=record) if record else None
-        if playlist is not None and pass_tracks is False:
-            records = await self.bot.pool.fetch("SELECT * FROM playlist_lookup WHERE playlist_id=$1;", playlist_id)
-            playlist.tracks = [PlaylistTrack(record=record) for record in records]
+
+        if playlist and pass_tracks is False:
+            playlist.tracks = await self._get_playlist_tracks(playlist.id)
         return playlist
 
     async def get_liked_songs(self, user_id: int) -> Optional[Playlist]:
         """Gets a User 'Liked Songs' playlist."""
-        record = await self.bot.pool.fetchrow("SELECT * FROM playlist WHERE user_id=$1 AND name=$2 LIMIT 1;", user_id,
-                                              'Liked Songs')
+        query = "SELECT * FROM playlist WHERE user_id=$1 AND name=$2 LIMIT 1;"
+
+        record = await self.bot.pool.fetchrow(query, user_id, 'Liked Songs')
         playlist = Playlist(self, record=record) if record else None
-        if playlist is not None:
-            records = await self.bot.pool.fetch("SELECT * FROM playlist_lookup WHERE playlist_id=$1;", playlist.id)
-            playlist.tracks = [PlaylistTrack(record=record) for record in records]
+
+        if playlist:
+            playlist.tracks = await self._get_playlist_tracks(playlist.id)
         return playlist
 
     @cache.cache()
     async def get_playlists(self, user_id: int) -> list[Playlist]:
         """Get all playlists from a user."""
-        records = await self.bot.pool.fetch("SELECT * FROM playlist WHERE user_id=$1;", user_id)
+        query = "SELECT * FROM playlist WHERE user_id=$1;"
+
+        records = await self.bot.pool.fetch(query, user_id)
         playlists = [Playlist(self, record=record) for record in records]
+
         for playlist in playlists:
-            records = await self.bot.pool.fetch("SELECT * FROM playlist_lookup WHERE playlist_id=$1;", playlist.id)
-            playlist.tracks = [PlaylistTrack(record=record) for record in records]
+            playlist.tracks = await self._get_playlist_tracks(playlist.id)
         return playlists
 
     @commands.command(
@@ -270,7 +322,11 @@ class PlaylistTools(commands.Cog):
         if ctx.invoked_subcommand is None:
             await ctx.send_help(ctx.command)
 
-    @commands.command(playlist.command, name='list', description='Display all your playlists and tracks.')
+    @commands.command(
+        playlist.command,
+        name='list',
+        description='Display all your playlists and tracks.'
+    )
     async def playlist_list(self, ctx: Context):
         """Display all your playlists and tracks."""
         playlists = await self.get_playlists(ctx.author.id)
@@ -301,29 +357,34 @@ class PlaylistTools(commands.Cog):
         PlaylistPaginator.start_pages = embeds
         await PlaylistPaginator.start(ctx, entries=embeds, per_page=1, ephemeral=True)
 
-    @commands.command(playlist.command, name='create', description='Create a new playlist.')
+    @commands.command(
+        playlist.command,
+        name='create',
+        description='Create a new playlist.'
+    )
     @app_commands.describe(name='The name of your new playlist.')
     async def playlist_create(self, ctx: Context, name: str):
         """Create a new playlist."""
         playlists = await self.get_playlists(ctx.author.id)
 
         if len(playlists) == 3 and not await self.bot.is_owner(ctx.author):
-            await ctx.stick(False, 'You can only have `3` playlists at the same time.',
-                            ephemeral=True)
-            return
+            return await ctx.stick(
+                False, 'You can only have `3` playlists at the same time.', ephemeral=True)
 
         if any(playlist.name == name for playlist in playlists):
-            await ctx.stick(False, 'There is already a playlist with this name, please choose another name.',
-                            ephemeral=True)
-            return
+            return await ctx.stick(
+                False, 'There is already a playlist with this name, please choose another name.', ephemeral=True)
 
-        record = await self.bot.pool.fetchval(
-            "INSERT INTO playlist (user_id, name, created) VALUES ($1, $2, $3) RETURNING id;",
-            ctx.author.id, name, discord.utils.utcnow())
+        if len(name) > 100:
+            return await ctx.stick(
+                False, 'The name of the playlist must be 100 characters or less.', ephemeral=True)
+
+        query = "INSERT INTO playlist (user_id, name, created) VALUES ($1, $2, $3) RETURNING id;"
+        playlist_id = await self.bot.pool.fetchval(query, ctx.author.id, name, discord.utils.utcnow())
         self.get_playlists.invalidate(self, ctx.author.id)
 
-        await ctx.stick(True, f'Successfully created playlist **{name}** [`{record}`].',
-                        ephemeral=True)
+        await ctx.stick(
+            True, f'Successfully created playlist **{name}** [`{playlist_id}`].', ephemeral=True)
 
     @commands.command(
         playlist.command,
@@ -331,11 +392,17 @@ class PlaylistTools(commands.Cog):
         description='Add the songs from you playlist to the plugins queue and play them.',
         guild_only=True
     )
-    @app_commands.describe(playlist_id='The ID of your playlist to play.')
-    @app_commands.autocomplete(playlist_id=playlist_id_autocomplete)  # type: ignore
+    @app_commands.rename(name_or_id='name-or-id')
+    @app_commands.describe(name_or_id='The name or id of your playlist to play.')
+    @app_commands.autocomplete(name_or_id=playlist_autocomplete)  # type: ignore
     @checks.is_listen_together()
     @checks.is_author_connected()
-    async def playlist_play(self, ctx: Context, playlist_id: int):
+    async def playlist_play(
+            self,
+            ctx: Context,
+            *,
+            name_or_id: Annotated[Union[str, int], TagNameOrID(lower=True, with_id=True)],  # type: ignore
+    ):
         """Add the songs from you playlist to the plugins queue and play them."""
         player: Player = cast(Player, ctx.voice_client)
 
@@ -343,7 +410,7 @@ class PlaylistTools(commands.Cog):
             music: Music = self.bot.get_cog('Music')  # type: ignore
             player = await music.join(ctx)
 
-        playlist = await self.get_playlist(playlist_id)
+        playlist = await self.get_playlist(ctx, name_or_id)
         if playlist is None:
             await ctx.stick(False, 'There is no playlist with this id.',
                             ephemeral=True)
@@ -383,35 +450,42 @@ class PlaylistTools(commands.Cog):
             player.autoplay = wavelink.AutoPlayMode.enabled
             await player.play(player.queue.get(), volume=70)
         else:
-            await player.view.update()
+            await player.panel.update()
 
     @commands.command(
         playlist.command,
         name='add',
         description='Adds the current playing track or a track via a direct-url to your playlist.'
     )
-    @app_commands.describe(query='The direct-url of the track/playlist/album you want to add to your playlist.',
-                           playlist_id='The ID of your playlist.')
-    @app_commands.autocomplete(playlist_id=playlist_id_autocomplete)  # type: ignore
-    async def playlist_add(self, ctx: Context, playlist_id: int, *, query: Optional[str] = None):
+    @app_commands.rename(name_or_id='name-or-id')
+    @app_commands.describe(
+        query='The direct-url of the track/playlist/album you want to add to your playlist.',
+        name_or_id='The id of your playlist.')
+    @app_commands.autocomplete(name_or_id=playlist_autocomplete)
+    async def playlist_add(
+            self,
+            ctx: Context,
+            name_or_id: Annotated[Union[str, int], TagNameOrID(lower=True, with_id=True)],  # type: ignore
+            *,
+            query: Optional[str] = None
+    ):
         """Adds the current playing track or a track via a direct-url to your playlist."""
         if not query and not (ctx.voice_client and ctx.voice_client.channel):
-            await ctx.stick(False, 'You have to provide either the `link` parameter or a current playing track.',
-                            ephemeral=True)
-            return
+            return await ctx.stick(
+                False, 'You have to provide either the `link` parameter or a current playing track.',
+                ephemeral=True)
 
-        playlist = await self.get_playlist(playlist_id)
+        playlist = await self.get_playlist(ctx, name_or_id)
         if playlist is None:
-            await ctx.stick(False, 'There is no playlist with this name.', ephemeral=True)
-            return
+            return await ctx.stick(False, 'There is no playlist with that name.', ephemeral=True)
 
         if not query and ctx.guild.voice_client:
             player: Player = cast(Player, ctx.voice_client)
 
             if not player.current:
-                await ctx.stick(False, 'You have to provide either the `link` parameter or a current playing track.',
-                                ephemeral=True)
-                return
+                return await ctx.stick(
+                    False, 'You have to provide either the `link` parameter or a current playing track.',
+                    ephemeral=True)
 
             await playlist.add_track(player.current)
             embed = discord.Embed(
@@ -424,24 +498,18 @@ class PlaylistTools(commands.Cog):
             embed.set_footer(text=f'[{playlist.id}] • {playlist.name}')
             await ctx.send(embed=embed, ephemeral=True)
         else:
-            temp_player = Player(self.bot)
-
-            query = query.strip('<>')
-            result = await temp_player.search(query, wavelink.TrackSource.YouTubeMusic, ctx)
+            result = await Player.search(query, source=wavelink.TrackSource.YouTubeMusic, ctx=ctx)
 
             if result is None:
-                await ctx.stick(False, 'Sorry! No results found matching your query.',
-                                ephemeral=True, delete_after=10)
-                return
+                return await ctx.stick(False, 'Sorry! No results found matching your query.',
+                                       ephemeral=True, delete_after=10)
 
-            if await temp_player.check_blacklist(result):
-                await ctx.stick(False, 'Blacklisted track detected. Please try another one.',
-                                ephemeral=True, delete_after=10)
-                return
+            if await Player.check_blacklist(result, pool=self.bot.pool):
+                return await ctx.stick(False, 'Blacklisted track detected. Please try another one.',
+                                       ephemeral=True, delete_after=10)
 
             added = [track.url for track in playlist.tracks]
             if isinstance(result, wavelink.Playlist):
-
                 success = 0
                 for track in result.tracks:
                     if track.uri in added:
@@ -459,9 +527,8 @@ class PlaylistTools(commands.Cog):
                 await ctx.send(embed=embed, ephemeral=True)
             else:
                 if result.uri in added:
-                    await ctx.stick(False, 'This Track is already in your playlist.',
-                                    ephemeral=True, delete_after=10)
-                    return
+                    return await ctx.stick(False, 'This Track is already in your playlist.',
+                                           ephemeral=True, delete_after=10)
 
                 await playlist.add_track(result)
 
@@ -481,15 +548,23 @@ class PlaylistTools(commands.Cog):
         name='delete',
         description='Delete a playlist.'
     )
-    @app_commands.describe(playlist_id='The ID of the playlist you want to delete.')
-    @app_commands.autocomplete(playlist_id=playlist_id_autocomplete)  # type: ignore
-    async def playlist_delete(self, ctx: Context, playlist_id: int):
+    @app_commands.rename(name_or_id='name-or-id')
+    @app_commands.describe(name_or_id='The name or id of the playlist you want to delete.')
+    @app_commands.autocomplete(name_or_id=playlist_autocomplete)
+    async def playlist_delete(
+            self,
+            ctx: Context,
+            *,
+            name_or_id: Annotated[Union[str, int], PlaylistNameOrID(lower=True, with_id=True)],  # type: ignore
+    ):
         """Delete a playlist."""
-        playlist = await self.get_playlist(playlist_id, pass_tracks=True)
+        playlist = await self.get_playlist(ctx, name_or_id, pass_tracks=True)
         if playlist is None:
-            await ctx.stick(False, 'No playlist found matching your query.',
-                            ephemeral=True)
-            return
+            return await ctx.stick(False, 'No playlist was found matching your query.', ephemeral=True)
+
+        if playlist.name == 'Liked Songs':
+            return await ctx.stick(
+                False, 'You cannot delete the Liked Songs playlist.', ephemeral=True)
 
         await playlist.delete()
         await ctx.stick(True, 'Successfully deleted playlist **{playlist.name}** [`{playlist.id}`] '
@@ -502,15 +577,20 @@ class PlaylistTools(commands.Cog):
         name='clear',
         description='Clear all Items in a playlist.'
     )
-    @app_commands.describe(playlist_id='The ID of the playlist you want to delete.')
-    @app_commands.autocomplete(playlist_id=playlist_id_autocomplete)  # type: ignore
-    async def playlist_clear(self, ctx: Context, playlist_id: int):
+    @app_commands.rename(name_or_id='name-or-id')
+    @app_commands.describe(name_or_id='The name or id of the playlist you want to clear.')
+    @app_commands.autocomplete(name_or_id=playlist_autocomplete)
+    async def playlist_clear(
+            self,
+            ctx: Context,
+            *,
+            name_or_id: Annotated[Union[str, int], TagNameOrID(lower=True, with_id=True)],  # type: ignore
+    ):
         """Clear all Items in a playlist."""
-        playlist = await self.get_playlist(playlist_id, pass_tracks=True)
+        playlist = await self.get_playlist(ctx, name_or_id, pass_tracks=True)
         if playlist is None:
-            await ctx.stick(False, 'No playlist found matching your query.',
-                            ephemeral=True)
-            return
+            return await ctx.stick(
+                False, 'No playlist was found matching your query.', ephemeral=True)
 
         await playlist.clear()
         await ctx.stick(True, 'Successfully purged all corresponding entries of '
@@ -523,22 +603,26 @@ class PlaylistTools(commands.Cog):
         name='remove',
         description='Remove a track from your playlist.'
     )
-    @app_commands.describe(playlist_id='The playlist ID you want to remove a track from.',
-                           track_id='The ID of the track to remove.')
-    @app_commands.autocomplete(playlist_id=playlist_id_autocomplete)  # type: ignore
-    async def playlist_remove(self, ctx: Context, playlist_id: int, track_id: int):
+    @app_commands.rename(name_or_id='name-or-id')
+    @app_commands.describe(
+        name_or_id='The playlist ID you want to remove a track from.',
+        track_id='The ID of the track to remove.')
+    @app_commands.autocomplete(name_or_id=playlist_autocomplete)
+    async def playlist_remove(
+            self,
+            ctx: Context,
+            name_or_id: Annotated[Union[str, int], TagNameOrID(lower=True, with_id=True)],  # type: ignore
+            track_id: int
+    ):
         """Remove a track from your playlist."""
-        playlist = await self.get_playlist(playlist_id)
+        playlist = await self.get_playlist(ctx, name_or_id)
         if playlist is None:
-            await ctx.stick(False, 'No playlist found matching your query.',
-                            ephemeral=True)
-            return
+            return await ctx.stick(
+                False, 'No playlist was found matching your query.', ephemeral=True)
 
         track = discord.utils.get(playlist.tracks, id=track_id)
         if not track:
-            await ctx.stick(False, 'No track found matching your query.',
-                            ephemeral=True)
-            return
+            return await ctx.stick(False, 'No track was found matching your query.', ephemeral=True)
 
         await playlist.remove_track(track)
         await ctx.stick(True, 'Successfully removed track **{track.name}** [`{track.id}`] '
