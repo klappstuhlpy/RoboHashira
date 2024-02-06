@@ -31,15 +31,15 @@ class PlaylistNameOrID(commands.clean_content):
         lower = converted.lower().strip()
 
         if not lower:
-            raise commands.BadArgument('Please enter a valid tag name' + ' or id.' if self.with_id else '.')
+            raise commands.BadArgument('Please enter a valid playlist name' + ' or id.' if self.with_id else '.')
 
         if len(lower) > 100:
             raise commands.BadArgument(
-                f'Tag names must be 100 characters or less. (You have *{len(lower)}* characters)')
+                f'Playlist names must be 100 characters or less. (You have *{len(lower)}* characters)')
 
         cog: PlaylistTools = ctx.bot.get_cog('PlaylistTools')  # noqa
         if cog is None:
-            raise commands.BadArgument('Tags are currently unavailable.')
+            raise commands.BadArgument('Playlist tools are currently unavailable.')
 
         if self.with_id:
             if converted and converted.isdigit():
@@ -401,7 +401,7 @@ class PlaylistTools(commands.Cog):
             self,
             ctx: Context,
             *,
-            name_or_id: Annotated[Union[str, int], TagNameOrID(lower=True, with_id=True)],  # type: ignore
+            name_or_id: Annotated[Union[str, int], PlaylistNameOrID(lower=True, with_id=True)],  # type: ignore
     ):
         """Add the songs from you playlist to the plugins queue and play them."""
         player: Player = cast(Player, ctx.voice_client)
@@ -465,7 +465,7 @@ class PlaylistTools(commands.Cog):
     async def playlist_add(
             self,
             ctx: Context,
-            name_or_id: Annotated[Union[str, int], TagNameOrID(lower=True, with_id=True)],  # type: ignore
+            name_or_id: Annotated[Union[str, int], PlaylistNameOrID(lower=True, with_id=True)],  # type: ignore
             *,
             query: Optional[str] = None
     ):
@@ -584,7 +584,7 @@ class PlaylistTools(commands.Cog):
             self,
             ctx: Context,
             *,
-            name_or_id: Annotated[Union[str, int], TagNameOrID(lower=True, with_id=True)],  # type: ignore
+            name_or_id: Annotated[Union[str, int], PlaylistNameOrID(lower=True, with_id=True)],  # type: ignore
     ):
         """Clear all Items in a playlist."""
         playlist = await self.get_playlist(ctx, name_or_id, pass_tracks=True)
@@ -611,7 +611,7 @@ class PlaylistTools(commands.Cog):
     async def playlist_remove(
             self,
             ctx: Context,
-            name_or_id: Annotated[Union[str, int], TagNameOrID(lower=True, with_id=True)],  # type: ignore
+            name_or_id: Annotated[Union[str, int], PlaylistNameOrID(lower=True, with_id=True)],  # type: ignore
             track_id: int
     ):
         """Remove a track from your playlist."""
