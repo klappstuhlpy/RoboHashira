@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import enum
 import datetime
+from contextlib import suppress
 from typing import TYPE_CHECKING, Any, Optional, List, Generic, Type, TypeVar
 
 import discord
@@ -71,6 +72,11 @@ class PlayerState(enum.Enum):
     STOPPED = 3
 
 
+class SearchReturn(enum.Enum):
+    NO_RESULTS = 1
+    CANCELLED = 2
+
+
 class Player(wavelink.Player):
     """Custom mdded-wavelink Player class."""
 
@@ -96,7 +102,7 @@ class Player(wavelink.Player):
             source: wavelink.TrackSource | str = wavelink.TrackSource.YouTubeMusic,
             ctx: Optional[discord.Interaction, Context] = None,
             return_first: bool = False
-    ) -> wavelink.Playable | wavelink.Playlist | None:
+    ) -> wavelink.Playable | wavelink.Playlist | SearchReturn:
         """Searches for a keyword/url on YouTube, Spotify, or SoundCloud.
 
         Parameters
@@ -118,6 +124,8 @@ class Player(wavelink.Player):
         check = yarl.URL(query)
         is_url = bool(check and check.host and check.scheme)
 
+        query = query.strip('<>')
+
         try:
             if not is_url:
                 results = await wavelink.Playable.search(query, source=source)
@@ -127,14 +135,17 @@ class Player(wavelink.Player):
                     results = await TrackDisambiguatorView.start(
                         ctx, tracks=results.tracks if isinstance(results, wavelink.Playlist) else results
                     ) if ctx else results
+
+                    if not results:
+                        return SearchReturn.CANCELLED
             else:
                 results = await wavelink.Playable.search(query)
         except Exception as exc:
             log.error(f'Error while searching for {query!r}', exc_info=exc)
-            return None
+            return SearchReturn.NO_RESULTS
 
         if not results:
-            return None
+            return SearchReturn.NO_RESULTS
 
         if isinstance(results, list) and is_url:
             results = results[0]
@@ -662,7 +673,7 @@ class TrackDisambiguatorView(discord.ui.View, Generic[T]):
             context: Context | discord.Interaction,
             *,
             tracks: List[T]
-    ) -> Optional[TrackDisambiguatorView[T]]:
+    ) -> Optional[T]:
         """|coro|
 
         Used to start the disambiguator."""
@@ -692,9 +703,7 @@ class TrackDisambiguatorView(discord.ui.View, Generic[T]):
         self.message = await context.send(embed=embed, view=self)
 
         await self.wait()
-        try:
+        with suppress(discord.HTTPException):
             await self.message.delete()
-        except discord.HTTPException:
-            pass
 
         return self.selected
