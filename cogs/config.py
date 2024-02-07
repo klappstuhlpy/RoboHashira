@@ -579,7 +579,7 @@ class Config(commands.Cog):
 
         await EmbedPaginator.start(ctx, entries=disabled, per_page=15)
 
-    @commands.command(config.group, name='global')
+    @commands.command(config.group, name='global', hidden=True)
     @commands.is_owner()
     async def _global(self, ctx: GuildContext):
         """Handles global bot configuration."""
@@ -599,11 +599,11 @@ class Config(commands.Cog):
 
     @commands.command(_global.command, name='track')
     async def global_track(self, ctx: GuildContext, *, object_url: str):
-        """Tracks a user or guild globally."""
+        """Adds a music track to the track blacklist."""
 
         is_url = bool(yarl.URL(object_url.strip('<>')).host)
         if not is_url:
-            return await ctx.send('<:redTick:1079249771975413910> This is not a valid URL.')
+            return await ctx.stick(False, 'This is not a valid URL.')
 
         query = 'INSERT INTO track_blacklist(url, reviewer_id) VALUES($1, $2) ON CONFLICT DO NOTHING RETURNING id;'
         async with ctx.pool.acquire(timeout=300.0) as con:
