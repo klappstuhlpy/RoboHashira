@@ -731,22 +731,22 @@ class Stats(commands.Cog):
         e.add_field(name='Top Users', value='\n'.join(value), inline=False)
         await ctx.send(embed=e)
 
-    async def send_guild_stats(self, e: discord.Embed, guild: discord.Guild):
-        e.add_field(name='Name', value=guild.name)
-        e.add_field(name='ID', value=guild.id)
-        e.add_field(name='Shard ID', value=guild.shard_id or 'N/A')
-        e.add_field(name='Owner', value=f'{guild.owner} (ID: `{guild.owner_id}`)')
+    async def send_guild_stats(self, embed: discord.Embed, guild: discord.Guild):
+        embed.add_field(name='Name', value=guild.name)
+        embed.add_field(name='ID', value=guild.id)
+        embed.add_field(name='Shard ID', value=guild.shard_id or 'N/A')
+        embed.add_field(name='Owner', value=f'{guild.owner} (ID: `{guild.owner_id}`)')
 
         bots = sum(m.bot for m in guild.members)
         total = guild.member_count or 1
-        e.add_field(name='Members', value=str(total))
-        e.add_field(name='Bots', value=f'{bots} ({bots / total:.2%})')
-        e.set_thumbnail(url=get_asset_url(guild))
+        embed.add_field(name='Members', value=str(total))
+        embed.add_field(name='Bots', value=f'{bots} ({bots / total:.2%})')
+        embed.set_thumbnail(url=get_asset_url(guild))
 
         if guild.me:
-            e.timestamp = guild.me.joined_at
+            embed.timestamp = guild.me.joined_at
 
-        await self.bot.stats_webhook.send(embed=e)
+        await self.bot.stats_webhook.send(embed=embed)
 
     @stats_today.before_invoke
     @stats_global.before_invoke
@@ -756,14 +756,14 @@ class Stats(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_join(self, guild: discord.Guild):
         await self.bot.wait_until_ready()
-        e = discord.Embed(colour=0x53DDA4, title='New Guild')
-        await self.send_guild_stats(e, guild)
+        embed = discord.Embed(colour=0x53DDA4, title='New Guild')
+        await self.send_guild_stats(embed, guild)
 
     @commands.Cog.listener()
     async def on_guild_remove(self, guild: discord.Guild):
         await self.bot.wait_until_ready()
-        e = discord.Embed(colour=0xDD5F53, title='Left Guild')
-        await self.send_guild_stats(e, guild)
+        embed = discord.Embed(colour=0xDD5F53, title='Left Guild')
+        await self.send_guild_stats(embed, guild)
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx: Context, error: Exception) -> None:
@@ -1294,16 +1294,16 @@ async def on_app_command_error(interaction: discord.Interaction, error: discord.
     if isinstance(error, (discord.Forbidden, discord.NotFound)):
         return
 
-    # Check if there is a 'bypass_log' attribute in the exception object
-    if to_bypass := command.extras.get('bypass_error', None):
-        if isinstance(error, to_bypass):
-            return
-
     hook: discord.Webhook = interaction.client.stats_webhook
     embed = discord.Embed(
         title='<:warning:1113421726861238363> App Command Error', timestamp=interaction.created_at, colour=0x99002b)
 
     if command is not None:
+        # Check if there is a 'bypass_log' attribute in the exception object
+        if to_bypass := command.extras.get('bypass_error', None):
+            if isinstance(error, to_bypass):
+                return
+
         if command._has_any_error_handlers():  # noqa
             return
 
