@@ -13,50 +13,15 @@ from bot import RoboHashira
 def preview_embed(guild: discord.Guild) -> discord.Embed:
     embed = discord.Embed(
         title='Music Player Panel',
-        description=f'The **control panel** was closed, the Queue is currently empty and I got nothing to do.\n'
-                    f'You can start a new player session by invoking the </play:1079059790380142762> command.\n\n'
-                    f'*Once you play a new track, this message is going to be the new player panel if it\'s not deleted, otherwise I\'m going to create a new panel.*',
+        description='The control panel was closed, the queue is currently empty and I got nothing to do.\n'
+                    'You can start a new player session by invoking the </play:1079059790380142762> command.\n\n'
+                    '*Once you play a new track, this message is going to be the new player panel if it\'s not deleted, '
+                    'otherwise I\'m going to create a new panel.*',
         timestamp=discord.utils.utcnow(),
         color=helpers.Colour.teal())
     embed.set_footer(text='last updated')
     embed.set_thumbnail(url=guild.icon.url if not None else None)
     return embed
-
-
-class ChooseView(discord.ui.View):
-    def __init__(self, cog: Setup):
-        super().__init__()
-        self.cog: Setup = cog
-        self.bot: RoboHashira = cog.bot
-
-    @discord.ui.button(label='Create a Text Channel', custom_id='create-channel', emoji='➕',
-                       style=discord.ButtonStyle.green)
-    async def create_channel(self, interaction: discord.Interaction, button: discord.ui.Button):  # noqa
-        await interaction.message.delete()
-        channel = await interaction.guild.create_text_channel(name='🎶hashira-music',
-                                                              category=interaction.channel.category)
-        await channel.edit(slowmode_delay=3,
-                           topic=f'This is the Channel where you can see {self.bot.user.mention}\'s current playing songs.\n'
-                                 f'You can interact with the **control panel** and manage the current songs.\n'
-                                 f'\n'
-                                 f'__Be careful not to delete the **control panel** message.__\n'
-                                 f'If you accidentally deleted the message, you have to redo the setup with </setup:1066792241978425528>.\n'
-                                 f'\n'
-                                 f'ℹ️** | Every Message if not pinned, gets deleted within 60 seconds.**')
-
-        await interaction.response.send_message(
-            f'<:greenTick:1079249732364406854> Successfully set the new player channel to {channel.mention}.')
-
-        message = await channel.send(embed=preview_embed(interaction.guild))
-        await message.pin()
-        await channel.purge(limit=5, check=lambda msg: not msg.pinned)
-
-        config: GuildConfig = await self.bot.cfg.get_config(interaction.guild.id)
-        await config.edit(music_channel=channel.id, music_message_id=message.id)
-
-    @discord.ui.button(label='Cancel', custom_id='cancel', style=discord.ButtonStyle.red)
-    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.message.delete()
 
 
 class Setup(commands.Cog):
@@ -73,7 +38,7 @@ class Setup(commands.Cog):
     @commands.command(
         commands.hybrid_group,
         name='dj',
-        description='Manage the DJ Role.',
+        description='Manage the DJ role.',
         guild_only=True
     )
     @commands.permissions(user=['manage_roles'])
@@ -156,41 +121,36 @@ class Setup(commands.Cog):
         fallback='set',
         guild_only=True
     )
-    @commands.permissions(user=['manage_channels'])
+    @commands.permissions(bot=['manage_channels'], user=['manage_channels'])
     async def setup(self, ctx: Context, channel: Optional[discord.TextChannel] = None):
-        """Start the Music configuration setup.
-        To use this command the bot and you both need the **Manage Channels** permission.
-        You can create a new text channel by typing the Command without any arguments, or you can
-        choose an existing text channel by typing the Command with the text channel as an argument."""
+        """Sets up a new music player channel.
+        If you don't provide a channel, the bot will create a new channel in the category where the command was executed.
+        """
 
         if ctx.interaction:
             await ctx.defer()
 
         if not channel:
-            embed = discord.Embed(
-                title='In which text channel should the **plugins control panel** be displayed?\n',
-                description=f'**If you want to add an existing channel, use `{ctx.prefix}setup <#channel>`.**')
-            embed.set_thumbnail(url=ctx.guild.icon.url)
-            await ctx.send(embed=embed, view=ChooseView(self))
-        else:
-            await channel.edit(slowmode_delay=3,
-                               topic=f'This is the Channel where you can see {self.bot.user.mention}\'s current playing songs.\n'
-                                     f'You can interact with the **control panel** and manage the current songs.\n'
-                                     f'\n'
-                                     f'__Be careful not to delete the **control panel** message.__\n'
-                                     f'If you accidentally deleted the message, you have to redo the setup with </setup:1066792241978425528>.\n'
-                                     f'\n'
-                                     f'ℹ️** | Every Message if not pinned, gets deleted within 60 seconds.**')
+            channel = await ctx.channel.category.create_text_channel(name='🎶hashira-music')
 
-            await ctx.send(
-                f'<:greenTick:1079249732364406854> Successfully set the new player channel to {channel.mention}.')
+        await channel.edit(
+            slowmode_delay=3,
+            topic=f'This is the Channel where you can see {self.bot.user.mention}\'s current playing songs.\n'
+                  f'You can interact with the **control panel** and manage the current songs.\n'
+                  f'\n'
+                  f'__Be careful not to delete the **control panel** message.__\n'
+                  f'If you accidentally deleted the message, you have to redo the setup with </setup:1079059789885222919>.\n'
+                  f'\n'
+                  f'ℹ️** | Every Message if not pinned, gets deleted within 60 seconds.**')
 
-            message = await channel.send(embed=preview_embed(ctx.guild))
-            await message.pin()
-            await channel.purge(limit=5, check=lambda msg: not msg.pinned)
+        await ctx.stick(True, f'Successfully set the new player channel to {channel.mention}.')
 
-            config: GuildConfig = await self.bot.cfg.get_config(ctx.guild.id)
-            await config.edit(music_channel=channel.id, music_message_id=message.id)
+        message = await channel.send(embed=preview_embed(ctx.guild))
+        await message.pin()
+        await channel.purge(limit=5, check=lambda msg: not msg.pinned)
+
+        config: GuildConfig = await self.bot.cfg.get_config(ctx.guild.id)
+        await config.edit(music_channel=channel.id, music_message_id=message.id)
 
     @commands.command(
         setup.command,
@@ -202,17 +162,19 @@ class Setup(commands.Cog):
         """Reset the Music configuration setup."""
         config: GuildConfig = await self.bot.cfg.get_config(ctx.guild.id)
         if not config or (not config.music_channel or not config.music_message_id):
-            return await ctx.stick(False, 'There is currently no Music Configuration.', ephemeral=True, delete_after=10)
+            return await ctx.stick(
+                False, 'There is currently no music configuration.', ephemeral=True, delete_after=10)
 
         await config.edit(music_channel=None, music_message_id=None)
-        await ctx.send('<:greenTick:1079249732364406854> The Music Configuration for this Guild has been deleted.',
-                       ephemeral=True)
+        await ctx.stick(True, 'The Music Configuration for this Guild has been deleted.',
+                        ephemeral=True)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         await self.bot.wait_until_ready()
         if message.guild is None:
             return
+
         config: GuildConfig = await self.bot.cfg.get_config(message.guild.id)
         if not config or (not config.music_channel or not config.music_message_id):
             return
