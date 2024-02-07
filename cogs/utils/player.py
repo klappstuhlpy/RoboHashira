@@ -280,17 +280,19 @@ class PlayerPanel(discord.ui.View, Generic[T]):
 
     @property
     def build_message(self) -> dict[str, Any]:
-        if self.state == PlayerState.PLAYING:
-            track = self.player.current
+        embed = discord.Embed(
+            title='Music Player Panel',
+            timestamp=discord.utils.utcnow(),
+            color=self.bot.colour.teal()
+        )
 
-            embed = discord.Embed(
-                title='Music Player Panel',
-                description='This is the Bot\'s control panel where you can easily perform actions '
-                            'of the bot without using a command.',
-                timestamp=discord.utils.utcnow(),
-                color=self.bot.colour.teal()
+        if self.state == PlayerState.PLAYING:
+            embed.description = (
+                'This is the Bot\'s control panel where you can easily perform actions '
+                'of the bot without using a command.'
             )
 
+            track = self.player.current
             artist = f'[{track.author}]({track.artist.url})' if track.artist.url else track.author
 
             embed.add_field(
@@ -360,13 +362,11 @@ class PlayerPanel(discord.ui.View, Generic[T]):
 
             embed.set_footer(text=f'{'Auto-Playing' if self.player.autoplay != 2 else 'Manual-Playing'} • last updated')
         else:
-            embed = discord.Embed(
-                title='Music Player Panel',
-                description='The control panel was closed, the queue is currently empty and I got nothing to do.\n'
-                            'You can start a new player session by invoking the </play:1079059790380142762> command.\n\n'
-                            '*Once you play a new track, this message is going to be the new player panel if it\'s not deleted, otherwise I\'m going to create a new panel.*',
-                timestamp=discord.utils.utcnow(),
-                color=self.bot.colour.teal()
+            embed.description = (
+                'The control panel was closed, the queue is currently empty and I got nothing to do.\n'
+                'You can start a new player session by invoking the </play:1079059790380142762> command.\n\n'
+                '*Once you play a new track, this message is going to be the new player panel if it\'s not deleted, '
+                'otherwise I\'m going to create a new panel.*'
             )
             embed.set_footer(text='last updated')
             embed.set_thumbnail(url=self.player.guild.icon.url if not None else None)
