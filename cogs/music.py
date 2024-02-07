@@ -2,7 +2,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-import traceback
 from contextlib import suppress
 from typing import Literal, Optional, Union, List, cast, TYPE_CHECKING, Annotated
 import datetime
@@ -34,11 +33,17 @@ log = get_logger(__name__)
 
 class PlayFlags(commands.FlagConverter, prefix='--', delimiter=' '):
     """Flags for the music commands."""
-    query: str = commands.Flag(name='query', aliases=['q'])
+    query: str = commands.Flag(name='query', description='The query you want to search for.', aliases=['q'])
     query.__setattr__('without_prefix', True)
 
-    source: Literal['yt', 'sp', 'sc'] = commands.Flag(name='source', aliases=['s'], default='yt')
-    force: Optional[bool] = commands.Flag(name='force', aliases=['f'], default=False)
+    source: Literal['yt', 'sp', 'sc'] = commands.Flag(
+        name='source', description='What source to search for your query.', aliases=['s'], default='yt')
+    force: Optional[bool] = commands.Flag(
+        name='force', description='Whether to force play the track/playlist.', aliases=['f'], default=False)
+    recommendations: Optional[bool] = commands.Flag(
+        name='recommendations',
+        description='Whether to auto-fill the queue with recommended tracks if the queue is empty.',
+        aliases=['r'], default=False)
 
 
 class VolumeConverter(commands.Converter):
@@ -258,13 +263,9 @@ class Music(commands.Cog):
         return player
 
     @commands.command(
-        description='Adds a track/playlist to the queue and play the next available track.',
+        description='Adds a track/playlist to the queue.',
         guild_only=True
     )
-    @app_commands.describe(
-        query='The track/playlist to add to the queue.',
-        source='The type of search to perform.',
-        force='Force the track to be added to the queue.')
     @app_commands.choices(
         source=[
             app_commands.Choice(name='YouTube (Default)', value='yt'),
@@ -294,7 +295,7 @@ class Music(commands.Cog):
         }
         flags.source = sources.get(flags.source, wavelink.TrackSource.YouTubeMusic)
 
-        player.autoplay = wavelink.AutoPlayMode.enabled
+        player.autoplay = wavelink.AutoPlayMode.enabled if flags.recommendations else wavelink.AutoPlayMode.partial
 
         if not flags.query:
             return await ctx.stick(False, 'Please provide a search query.', ephemeral=True,
@@ -660,7 +661,7 @@ class Music(commands.Cog):
         else:
             await ctx.channel.typing()
 
-        filters = player.filters
+        filters: wavelink.Filters = player.filters
         if not band or not gain:
             return await ctx.stick(False, 'Please provide a valid Band and Gain or a Preset.')
 
@@ -694,7 +695,7 @@ class Music(commands.Cog):
         else:
             await ctx.channel.typing()
 
-        filters = player.filters
+        filters: wavelink.Filters = player.filters
         filters.equalizer.set(bands=[
             {'band': 0, 'gain': 0.2}, {'band': 1, 'gain': 0.15}, {'band': 2, 'gain': 0.1},
             {'band': 3, 'gain': 0.05}, {'band': 4, 'gain': 0.0}, {'band': 5, 'gain': -0.05},
@@ -722,7 +723,7 @@ class Music(commands.Cog):
         if not player:
             return
 
-        filters = player.filters
+        filters: wavelink.Filters = player.filters
         filters.timescale.set(speed=1.25, pitch=1.3, rate=1.3)
         await player.set_filters(filters)
 
@@ -739,7 +740,7 @@ class Music(commands.Cog):
         if not player:
             return
 
-        filters = player.filters
+        filters: wavelink.Filters = player.filters
         filters.rotation.set(rotation_hz=0.15)
         await player.set_filters(filters)
 
@@ -761,7 +762,7 @@ class Music(commands.Cog):
         if not player:
             return
 
-        filters = player.filters
+        filters: wavelink.Filters = player.filters
         filters.low_pass.set(smoothing=smoothing)
         await player.set_filters(filters)
 
