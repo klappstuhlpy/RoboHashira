@@ -252,18 +252,24 @@ class Player(wavelink.Player):
                 return await obj.response.send_message(embed=embed, delete_after=15)
 
 
-class PlayerPanel(discord.ui.View, Generic[T]):
-    """
-    The Main Class for a Player Panel.
+class PlayerPanel(discord.ui.View):
+    """The Main Class for a Player Panel.
 
     Attributes
     ----------
-    player: :class:`Player`
-        The player that this panel is for.
     bot: :class:`RoboHashira`
         The bot instance.
+    player: :class:`Player`
+        The player that this panel is for.
+    state: :class:`PlayerState`
+        The state of the player.
+    msg: :class:`discord.Message`
+        The message of the panel.
+    channel: :class:`discord.TextChannel`
+        The channel where the panel is sent.
+    cooldown: :class:`commands.CooldownMapping`
+        The cooldown mapping for the panel.
     """
-
     def __init__(self, *, player: Player, state: PlayerState) -> None:
         super().__init__(timeout=None)
         self.bot: RoboHashira = player.bot
@@ -278,8 +284,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
 
         self.update_buttons()
 
-    @property
-    def build_message(self) -> dict[str, Any]:
+    def build_embed(self) -> discord.Embed:
         embed = discord.Embed(
             title='Music Player Panel',
             timestamp=discord.utils.utcnow(),
@@ -371,7 +376,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
             embed.set_footer(text='last updated')
             embed.set_thumbnail(url=self.player.guild.icon.url if not None else None)
 
-        return {'embed': embed, 'view': self}
+        return embed
 
     def disabled_state(self, check: bool = None) -> bool:
         return check or bool(self.state == PlayerState.STOPPED) or self.player.queue.all_is_empty
@@ -462,9 +467,9 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         await self.get_player_message()
 
         if self.msg is not MISSING:
-            await self.msg.edit(**self.build_message)
+            await self.msg.edit(embed=self.build_embed(), view=self)
         else:
-            self.msg = await self.channel.send(**self.build_message)
+            self.msg = await self.channel.send(embed=self.build_embed(), view=self)
 
         return self.msg
 
@@ -487,7 +492,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         self.player.queue.shuffle = TOGGLE.get(self.player.queue.shuffle)
 
         self.update_buttons()
-        await interaction.response.edit_message(**self.build_message)
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
     @discord.ui.button(
         style=discord.ButtonStyle.blurple,
@@ -506,7 +511,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
     async def on_pause_play(self, interaction: discord.Interaction, button: discord.ui.Button):  # noqa
         await self.player.pause(not self.player.paused)
         self.update_buttons()
-        await interaction.response.edit_message(**self.build_message)
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
     @discord.ui.button(
         style=discord.ButtonStyle.blurple,
@@ -531,7 +536,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         self.player.queue.mode = TRANSITIONS.get(self.player.queue.mode)
 
         self.update_buttons()
-        await interaction.response.edit_message(**self.build_message)
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
     @discord.ui.button(
         style=discord.ButtonStyle.red,
@@ -560,8 +565,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
         disabled=True
     )
     async def on_like(self, interaction: discord.Interaction, button: discord.ui.Button):  # noqa
-        from cogs.playlist import PlaylistTools
-        playlist_tools: PlaylistTools = self.bot.get_cog('PlaylistTools')  # noqa
+        playlist_tools: Any = self.bot.get_cog('PlaylistTools')
         if not playlist_tools:
             return await interaction.response.send_message('This feature is currently disabled.', ephemeral=True)
 
@@ -590,7 +594,7 @@ class PlayerPanel(discord.ui.View, Generic[T]):
             *,
             channel: discord.TextChannel,
             state: PlayerState = PlayerState.STOPPED,
-    ) -> PlayerPanel[T]:
+    ) -> PlayerPanel:
         """|coro|
 
         Used to start the paginator.
@@ -606,8 +610,8 @@ class PlayerPanel(discord.ui.View, Generic[T]):
 
         Returns
         -------
-        :class:`BaseButtonPaginator`[T]
-            The paginator that was started.
+        :class:`PlayerPanel`
+            The paginator object.
         """
         self = cls(player=player, state=state)
 
@@ -633,7 +637,7 @@ class AdjustVolumeModal(discord.ui.Modal, title='Volume Adjuster'):
 
         value = int(self.number.value)
         await self._view.player.set_volume(value)
-        return await interaction.response.edit_message(**self._view.build_message)
+        return await interaction.response.edit_message(embed=self._view.build_embed(), view=self._view)
 
 
 class TrackDisambiguatorView(discord.ui.View, Generic[T]):
